@@ -13,7 +13,7 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups |
 | Interactive setup | `timesync tui` — stdin prompts for role, interface, and apply/dry-run/cancel |
 | RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP drop-ins |
-| Releases | Pre-built `linux/amd64` and `linux/arm64` binaries on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
+| Releases | Pre-built `linux/amd64` and `linux/arm64` binaries plus `.deb`/`.rpm` on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 
 ## What are NTP and PTP?
 
@@ -211,6 +211,27 @@ chmod +x timesync
 sudo mv timesync /usr/local/bin/
 ```
 
+### Distro packages (`.deb`, `.rpm`)
+
+Tagged releases include native packages for `linux/amd64` and `linux/arm64`:
+
+| Format | Example artifact |
+|--------|------------------|
+| Debian/Ubuntu (`.deb`) | `timesync_<version>_amd64.deb` |
+| RHEL/Fedora (`.rpm`) | `timesync-<version>-1.x86_64.rpm` |
+
+```bash
+# Debian/Ubuntu (amd64)
+curl -fsSLO https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync_<version>_amd64.deb
+sudo apt install ./timesync_<version>_amd64.deb
+
+# RHEL/Fedora (amd64)
+curl -fsSLO https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-<version>-1.x86_64.rpm
+sudo dnf install ./timesync-<version>-1.x86_64.rpm
+```
+
+Packages install `/usr/bin/timesync` and declare runtime dependencies on `chrony` and `ethtool` (recommends `linuxptp` for PTP roles).
+
 ### Build from source
 
 ```bash
@@ -249,7 +270,7 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 | Feature | Status |
 |---------|--------|
 | CI matrix build artifacts (`linux/amd64`, `linux/arm64`) | Done — see [releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
-| Distro packaging (`.deb`, `.rpm`) | Planned |
+| Distro packaging (`.deb`, `.rpm`) | Done |
 | PTP unicast client (`--source` → ptp4l unicast master) | Planned |
 | Auto-detect PTP HW before enabling `--ptp` in apply | Planned |
 | Interactive confirmation before overwriting non-timesync configs | Planned |

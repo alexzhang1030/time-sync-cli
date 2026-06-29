@@ -13,7 +13,7 @@
 | 配置 | `timesync apply auto\|master\|client`，支持 `--dry-run`、可选 `--ptp`、文件备份 |
 | 交互配置 | `timesync tui` — stdin 问答选择角色、网卡及 apply/dry-run/cancel |
 | RTC 回写 | chrony 配置中的 `rtcsync`；PTP drop-in 中的 `phc2sys -w` |
-| 发布 | [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) 提供 `linux/amd64`、`linux/arm64` 预编译包 |
+| 发布 | [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) 提供 `linux/amd64`、`linux/arm64` 预编译包及 `.deb`/`.rpm` |
 
 ## NTP 和 PTP 是什么？
 
@@ -211,6 +211,27 @@ chmod +x timesync
 sudo mv timesync /usr/local/bin/
 ```
 
+### 发行版包（`.deb`、`.rpm`）
+
+带 tag 的 release 提供 `linux/amd64` 与 `linux/arm64` 原生包：
+
+| 格式 | 示例产物 |
+|------|----------|
+| Debian/Ubuntu（`.deb`） | `timesync_<version>_amd64.deb` |
+| RHEL/Fedora（`.rpm`） | `timesync-<version>-1.x86_64.rpm` |
+
+```bash
+# Debian/Ubuntu（amd64）
+curl -fsSLO https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync_<version>_amd64.deb
+sudo apt install ./timesync_<version>_amd64.deb
+
+# RHEL/Fedora（amd64）
+curl -fsSLO https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-<version>-1.x86_64.rpm
+sudo dnf install ./timesync-<version>-1.x86_64.rpm
+```
+
+包将二进制安装到 `/usr/bin/timesync`，并声明运行时依赖 `chrony`、`ethtool`（推荐 `linuxptp` 用于 PTP 角色）。
+
 ### 从源码构建
 
 ```bash
@@ -249,7 +270,7 @@ timesync tui                                             # 交互式引导配置
 | 功能 | 状态 |
 |------|------|
 | CI 矩阵构建产物（`linux/amd64`、`linux/arm64`） | 已完成 — 见 [releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
-| 发行版打包（`.deb`、`.rpm`） | 计划中 |
+| 发行版打包（`.deb`、`.rpm`） | 已完成 |
 | PTP 单播客户端（`--source` → ptp4l unicast master） | 计划中 |
 | apply 前自动检测 PTP 硬件再启用 `--ptp` | 计划中 |
 | 覆盖非 timesync 配置前的交互确认 | 计划中 |
