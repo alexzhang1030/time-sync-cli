@@ -26,9 +26,9 @@ jobs:
             artifact: timesync-linux-arm64
             debarch: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -41,10 +41,10 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -o "${{ matrix.artifact }}" ./cmd/timesync
+        run: go build -trimpath -ldflags="-s -w" -o "${{ matrix.artifact }}" ./cmd/timesync
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -66,7 +66,7 @@ jobs:
           nfpm package --config nfpm.yaml --packager deb --target "dist/timesync_${VERSION}_${DEB_ARCH}.deb"
 
       - name: Upload deb artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: timesync-deb-${{ matrix.debarch }}
           path: dist/*.deb
@@ -78,12 +78,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: timesync-*
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
