@@ -9,7 +9,7 @@
 | 领域 | 能力 |
 |------|------|
 | 检测 | `timesync doctor` — OS、systemd、依赖二进制、网卡、通过 `ethtool -T` 检测 PTP 硬件时间戳 |
-| 状态 | `timesync status` — 已配置角色、NTP 偏移/源、systemd unit 状态 |
+| 状态 | `timesync status` — 已配置角色、NTP/PTP 偏移与源、端口状态、路径延迟、systemd unit 状态 |
 | 配置 | `timesync apply auto\|master\|client`，支持 `--dry-run`、可选 `--ptp`、文件备份 |
 | 交互配置 | `timesync tui` — stdin 问答选择角色、网卡及 apply/dry-run/cancel |
 | RTC 回写 | chrony 配置中的 `rtcsync`；PTP drop-in 中的 `phc2sys -w` |
@@ -145,8 +145,9 @@ timesync tui
 ### 验证 RTC / 同步状态
 
 ```bash
-timesync status
+timesync status           # NTP + PTP 同步健康度、端口状态、偏移、路径延迟
 chronyc tracking          # NTP 偏移与参考源
+pmc -u -b 0 'GET TIME_STATUS_NP'   # 原始 PTP 偏移（linuxptp）
 timedatectl status        # 系统时钟 + RTC 同步标志
 ```
 
@@ -222,7 +223,7 @@ sudo mv timesync /usr/local/bin/
 
 ```bash
 timesync doctor                                          # 检测 OS、工具、网卡、PTP 能力
-timesync status                                          # 同步健康度、角色、源、偏移
+timesync status                                          # 同步健康度、角色、NTP/PTP 偏移、端口状态
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run]
@@ -256,7 +257,7 @@ timesync tui                                             # 交互式引导配置
 | `timesync rollback` 恢复备份 | 计划中 |
 | 集群选主（避免多 master） | 范围外（设计如此） |
 | 富 TUI（方向键菜单） | 计划中 |
-| 深度 PTP 状态解析（端口状态、偏移） | 计划中 |
+| 深度 PTP 状态解析（端口状态、偏移） | 已完成 |
 
 ## 开发
 
