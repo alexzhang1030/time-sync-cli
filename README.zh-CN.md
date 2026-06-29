@@ -11,7 +11,7 @@
 | 检测 | `timesync doctor` — OS、systemd、依赖二进制、网卡、通过 `ethtool -T` 检测 PTP 硬件时间戳 |
 | 状态 | `timesync status` — 已配置角色、NTP 偏移/源、systemd unit 状态 |
 | 配置 | `timesync apply auto\|master\|client`，支持 `--dry-run`、可选 `--ptp`、文件备份 |
-| 交互配置 | `timesync tui` — stdin 问答选择角色、网卡及 apply/dry-run/cancel |
+| 交互配置 | `timesync tui` — 方向键菜单（doctor/status/apply）；非 TTY 时回退为编号问答 |
 | RTC 回写 | chrony 配置中的 `rtcsync`；PTP drop-in 中的 `phc2sys -w` |
 | 发布 | [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) 提供 `linux/amd64`、`linux/arm64` 预编译包 |
 
@@ -121,6 +121,15 @@ PTP 从端通过 `ptp4l` 在 L2 域内发现/跟随 Grandmaster；`--source` 预
 ```bash
 timesync tui
 ```
+
+在交互式终端上，`timesync tui` 会打开全屏菜单：
+
+- **Doctor** — 系统检测（OS、二进制、网卡、PTP 能力）
+- **Status** — 同步健康度、角色、偏移、systemd unit 状态
+- **Apply** — 引导式角色/网卡配置，支持 dry-run、apply 或 cancel
+- **Quit** — 退出
+
+使用 **↑/↓**（或 `j`/`k`）导航，**Enter** 确认，**Esc** 返回。当 stdin 不是 TTY（管道、CI、自动化）时，同样的流程通过编号问答提供。
 
 ## 硬件时钟（RTC）同步
 
@@ -255,7 +264,7 @@ timesync tui                                             # 交互式引导配置
 | 覆盖非 timesync 配置前的交互确认 | 计划中 |
 | `timesync rollback` 恢复备份 | 计划中 |
 | 集群选主（避免多 master） | 范围外（设计如此） |
-| 富 TUI（方向键菜单） | 计划中 |
+| 富 TUI（方向键菜单） | 已完成 |
 | 深度 PTP 状态解析（端口状态、偏移） | 计划中 |
 
 ## 开发

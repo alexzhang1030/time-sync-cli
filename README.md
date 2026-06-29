@@ -11,7 +11,7 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Detection | `timesync doctor` — OS, systemd, required binaries, interfaces, PTP hardware timestamping via `ethtool -T` |
 | Status | `timesync status` — configured role, NTP offset/source, systemd unit state |
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups |
-| Interactive setup | `timesync tui` — stdin prompts for role, interface, and apply/dry-run/cancel |
+| Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply; falls back to numbered prompts on non-TTY |
 | RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP drop-ins |
 | Releases | Pre-built `linux/amd64` and `linux/arm64` binaries on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 
@@ -121,6 +121,15 @@ PTP slaves discover/follow the grandmaster on the L2 domain via `ptp4l`; the `--
 ```bash
 timesync tui
 ```
+
+On an interactive terminal, `timesync tui` opens a full-screen menu:
+
+- **Doctor** — system detection (OS, binaries, interfaces, PTP capabilities)
+- **Status** — sync health, role, offset, systemd unit state
+- **Apply** — guided role/interface configuration with dry-run, apply, or cancel
+- **Quit**
+
+Navigate with **↑/↓** (or `j`/`k`), confirm with **Enter**, go back with **Esc**. When stdin is not a TTY (pipes, CI, automation), the same flows are available via numbered prompts.
 
 ## Hardware clock (RTC) sync
 
@@ -255,7 +264,7 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 | Interactive confirmation before overwriting non-timesync configs | Planned |
 | `timesync rollback` to restore backups | Planned |
 | Cluster leader election (multi-master avoidance) | Out of scope (by design) |
-| Rich TUI (arrow-key menus) | Planned |
+| Rich TUI (arrow-key menus) | Done |
 | Deep PTP status parsing (port state, offset) | Planned |
 
 ## Development
