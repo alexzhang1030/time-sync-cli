@@ -1,0 +1,19 @@
+name: timesync
+arch: ${DEB_ARCH}
+platform: linux
+version: ${VERSION}
+maintainer: Alex <alexzhang1030@foxmail.com>
+description: |
+  Linux time sync CLI for NTP/PTP management.
+  Hides NTP/PTP complexity behind simple configuration flows for robot,
+  industrial PC, and embedded Linux deployments.
+vendor: alexzhang1030
+homepage: https://github.com/alexzhang1030/time-sync-cli
+license: MIT
+section: utils
+priority: optional
+contents:
+  - src: ./timesync
+    dst: /usr/bin/timesync
+    file_info:
+      mode: 0755
