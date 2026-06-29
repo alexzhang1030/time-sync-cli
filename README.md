@@ -171,12 +171,28 @@ timedatectl status        # system clock + RTC sync flag
 
 ## Install
 
+### Pre-built binaries
+
+Download from the [latest release](https://github.com/alexzhang1030/time-sync-cli/releases/latest):
+
+| Platform | Artifact |
+|----------|----------|
+| Linux x86_64 (`linux/amd64`) | [`timesync-linux-amd64`](https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-linux-amd64) |
+| Linux ARM64 (`linux/arm64`) | [`timesync-linux-arm64`](https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-linux-arm64) |
+
+```bash
+# Example: amd64
+curl -fsSL -o timesync https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-linux-amd64
+chmod +x timesync
+sudo mv timesync /usr/local/bin/
+```
+
+### Build from source
+
 ```bash
 go build -o timesync ./cmd/timesync
 sudo mv timesync /usr/local/bin/
 ```
-
-Pre-built binaries for `linux/amd64` and `linux/arm64` are planned — see [issue #3](https://github.com/alexzhang1030/time-sync-cli/issues/3).
 
 ## Commands
 
@@ -217,7 +233,7 @@ In Synara, add/open a project pointing at the workspace path above (or clone the
 
 | Feature | Status |
 |---------|--------|
-| CI matrix build artifacts (`linux/amd64`, `linux/arm64`) | [#3](https://github.com/alexzhang1030/time-sync-cli/issues/3) |
+| CI matrix build artifacts (`linux/amd64`, `linux/arm64`) | Done — see [releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 | Distro packaging (`.deb`, `.rpm`) | Planned |
 | PTP unicast client (`--source` → ptp4l unicast master) | Planned |
 | Auto-detect PTP HW before enabling `--ptp` in apply | Planned |

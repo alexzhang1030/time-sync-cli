@@ -171,12 +171,28 @@ timedatectl status        # 系统时钟 + RTC 同步标志
 
 ## 安装
 
+### 预编译二进制
+
+从[最新 Release](https://github.com/alexzhang1030/time-sync-cli/releases/latest) 下载：
+
+| 平台 | 产物 |
+|------|------|
+| Linux x86_64（`linux/amd64`） | [`timesync-linux-amd64`](https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-linux-amd64) |
+| Linux ARM64（`linux/arm64`） | [`timesync-linux-arm64`](https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-linux-arm64) |
+
+```bash
+# 示例：amd64
+curl -fsSL -o timesync https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-linux-amd64
+chmod +x timesync
+sudo mv timesync /usr/local/bin/
+```
+
+### 从源码构建
+
 ```bash
 go build -o timesync ./cmd/timesync
 sudo mv timesync /usr/local/bin/
 ```
-
-`linux/amd64` 与 `linux/arm64` 预编译二进制见 [#3](https://github.com/alexzhang1030/time-sync-cli/issues/3)。
 
 ## 命令
 
@@ -217,7 +233,7 @@ timesync tui                                             # 交互式引导配置
 
 | 功能 | 状态 |
 |------|------|
-| CI 矩阵构建产物（`linux/amd64`、`linux/arm64`） | [#3](https://github.com/alexzhang1030/time-sync-cli/issues/3) |
+| CI 矩阵构建产物（`linux/amd64`、`linux/arm64`） | 已完成 — 见 [releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 | 发行版打包（`.deb`、`.rpm`） | 计划中 |
 | PTP 单播客户端（`--source` → ptp4l unicast master） | 计划中 |
 | apply 前自动检测 PTP 硬件再启用 `--ptp` | 计划中 |
