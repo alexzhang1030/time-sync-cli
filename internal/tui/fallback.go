@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/alexzhang1030/time-sync-cli/internal/apply"
 	"github.com/alexzhang1030/time-sync-cli/internal/detect"
 	"github.com/alexzhang1030/time-sync-cli/internal/model"
 	"github.com/alexzhang1030/time-sync-cli/internal/planner"
@@ -150,6 +151,27 @@ func runApplyFallback(reader *bufio.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	if isApplyAction(action) && !opts.Yes {
+		conflicts, err := apply.UnmanagedConflicts(plan)
+		if err != nil {
+			return err
+		}
+		if len(conflicts) > 0 {
+			fmt.Fprintln(out, "")
+			fmt.Fprintln(out, formatConflictSummary(conflicts))
+			confirmed, err := promptYesNo(reader, out, "Overwrite these files?", true)
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				fmt.Fprintln(out, "Aborted; no changes applied.")
+				return nil
+			}
+			opts.Yes = true
+		}
+	}
+
 	msg, err := executeApplyAction(opts, plan, action)
 	if err != nil {
 		return err

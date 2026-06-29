@@ -18,6 +18,7 @@ type ApplyOptions struct {
 	Source       string
 	PTP          bool
 	DryRun       bool
+	Yes          bool
 }
 
 // PlannedChange describes a single change the planner would apply.

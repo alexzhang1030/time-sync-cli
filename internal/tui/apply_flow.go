@@ -30,6 +30,15 @@ func executeApplyAction(opts model.ApplyOptions, plan *model.Plan, action string
 	case "dry-run", "d", "":
 		return "(dry-run: no changes applied)", nil
 	case "apply", "a", "y", "yes":
+		if !opts.Yes {
+			conflicts, err := apply.UnmanagedConflicts(plan)
+			if err != nil {
+				return "", err
+			}
+			if len(conflicts) > 0 {
+				return "", fmt.Errorf("refusing to overwrite %d unmanaged file(s) without confirmation", len(conflicts))
+			}
+		}
 		if err := apply.ValidatePTPHardware(opts); err != nil {
 			return "", err
 		}
@@ -42,6 +51,27 @@ func executeApplyAction(opts model.ApplyOptions, plan *model.Plan, action string
 	default:
 		return "", fmt.Errorf("unknown action: %q", action)
 	}
+}
+
+func isApplyAction(action string) bool {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "apply", "a", "y", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+func formatConflictSummary(conflicts []string) string {
+	var b strings.Builder
+	b.WriteString("These existing files are NOT managed by timesync and will be overwritten:\n")
+	for _, p := range conflicts {
+		fmt.Fprintf(&b, "  - %s\n", p)
+	}
+	b.WriteString("Existing contents are backed up under ")
+	b.WriteString(apply.DefaultBackupDir)
+	b.WriteString(" before overwrite.")
+	return b.String()
 }
 
 func ifaceRequired(role model.Role) bool {

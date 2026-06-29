@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/alexzhang1030/time-sync-cli/internal/apply"
 	"github.com/alexzhang1030/time-sync-cli/internal/detect"
@@ -79,7 +81,7 @@ func applyCmd() *cobra.Command {
 
 func applyAutoCmd() *cobra.Command {
 	var iface, ntpPool string
-	var ptp, dryRun bool
+	var ptp, dryRun, yes bool
 
 	cmd := &cobra.Command{
 		Use:   "auto",
@@ -91,6 +93,7 @@ func applyAutoCmd() *cobra.Command {
 				NTPPool: ntpPool,
 				PTP:     ptp,
 				DryRun:  dryRun,
+				Yes:     yes,
 			})
 		},
 	}
@@ -98,12 +101,13 @@ func applyAutoCmd() *cobra.Command {
 	cmd.Flags().StringVar(&ntpPool, "ntp-pool", "pool.ntp.org", "NTP pool server")
 	cmd.Flags().BoolVar(&ptp, "ptp", false, "enable PTP when hardware supports it")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "render planned changes without applying")
+	cmd.Flags().BoolVar(&yes, "yes", false, "assume yes; overwrite non-timesync config files without prompting")
 	return cmd
 }
 
 func applyMasterCmd() *cobra.Command {
 	var iface, ntpServeCIDR string
-	var ptp, dryRun bool
+	var ptp, dryRun, yes bool
 
 	cmd := &cobra.Command{
 		Use:   "master",
@@ -115,6 +119,7 @@ func applyMasterCmd() *cobra.Command {
 				NTPServeCIDR: ntpServeCIDR,
 				PTP:          ptp,
 				DryRun:       dryRun,
+				Yes:          yes,
 			})
 		},
 	}
@@ -122,13 +127,14 @@ func applyMasterCmd() *cobra.Command {
 	cmd.Flags().StringVar(&ntpServeCIDR, "ntp-serve-cidr", "", "CIDR to allow NTP serving")
 	cmd.Flags().BoolVar(&ptp, "ptp", false, "enable PTP grandmaster mode")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "render planned changes without applying")
+	cmd.Flags().BoolVar(&yes, "yes", false, "assume yes; overwrite non-timesync config files without prompting")
 	_ = cmd.MarkFlagRequired("iface")
 	return cmd
 }
 
 func applyClientCmd() *cobra.Command {
 	var iface, source string
-	var ptp, dryRun bool
+	var ptp, dryRun, yes bool
 
 	cmd := &cobra.Command{
 		Use:   "client",
@@ -140,6 +146,7 @@ func applyClientCmd() *cobra.Command {
 				Source: source,
 				PTP:    ptp,
 				DryRun: dryRun,
+				Yes:    yes,
 			})
 		},
 	}
@@ -147,6 +154,7 @@ func applyClientCmd() *cobra.Command {
 	cmd.Flags().StringVar(&source, "source", "", "upstream host or IP (required)")
 	cmd.Flags().BoolVar(&ptp, "ptp", false, "use PTP slave mode")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "render planned changes without applying")
+	cmd.Flags().BoolVar(&yes, "yes", false, "assume yes; overwrite non-timesync config files without prompting")
 	_ = cmd.MarkFlagRequired("iface")
 	_ = cmd.MarkFlagRequired("source")
 	return cmd
@@ -162,6 +170,22 @@ func runApply(opts model.ApplyOptions) error {
 		fmt.Println("\n(dry-run: no changes applied)")
 		return nil
 	}
+
+	conflicts, err := apply.UnmanagedConflicts(plan)
+	if err != nil {
+		return err
+	}
+	if len(conflicts) > 0 {
+		proceed, err := confirmOverwrite(conflicts, opts.Yes)
+		if err != nil {
+			return err
+		}
+		if !proceed {
+			fmt.Println("\nAborted; no changes applied.")
+			return nil
+		}
+	}
+
 	if err := apply.ValidatePTPHardware(opts); err != nil {
 		return err
 	}
@@ -170,6 +194,46 @@ func runApply(opts model.ApplyOptions) error {
 	}
 	fmt.Println("\nConfiguration applied successfully.")
 	return nil
+}
+
+// confirmOverwrite shows the unmanaged files that would be overwritten and
+// decides whether to proceed: --yes always proceeds, an interactive TTY asks
+// y/n, and a non-interactive session refuses unless --yes was given.
+func confirmOverwrite(conflicts []string, assumeYes bool) (bool, error) {
+	fmt.Println("\nThe following existing files are NOT managed by timesync and would be overwritten:")
+	for _, p := range conflicts {
+		fmt.Printf("  - %s\n", p)
+	}
+	fmt.Println("Existing contents are backed up under", apply.DefaultBackupDir, "before overwrite.")
+
+	if assumeYes {
+		fmt.Println("Proceeding (--yes).")
+		return true, nil
+	}
+	if !stdinIsInteractive() {
+		return false, fmt.Errorf("refusing to overwrite %d unmanaged file(s) in a non-interactive session; re-run with --yes to confirm", len(conflicts))
+	}
+
+	fmt.Print("Overwrite these files? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		return false, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func stdinIsInteractive() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
 func tuiCmd() *cobra.Command {
