@@ -1,3 +1,4 @@
 /timesync
 /dist/
 *.exe
+.synara/

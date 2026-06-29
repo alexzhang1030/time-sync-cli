@@ -4,6 +4,17 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 
 **Languages:** [English](README.md) · [简体中文](README.zh-CN.md)
 
+## Implemented today
+
+| Area | What works |
+|------|------------|
+| Detection | `timesync doctor` — OS, systemd, required binaries, interfaces, PTP hardware timestamping via `ethtool -T` |
+| Status | `timesync status` — configured role, NTP offset/source, systemd unit state |
+| Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups |
+| Interactive setup | `timesync tui` — stdin prompts for role, interface, and apply/dry-run/cancel |
+| RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP drop-ins |
+| Releases | Pre-built `linux/amd64` and `linux/arm64` binaries on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
+
 ## What are NTP and PTP?
 
 ### NTP (Network Time Protocol)
@@ -53,6 +64,19 @@ Best for:
 | `auto` | NTP client → internet pool | Optional PTP client if `--ptp` and HW supports it | Edge device with internet; never becomes master silently |
 | `master` | NTP server for a CIDR | Optional PTP grandmaster with `--ptp` | Local time source for a cell / subnet |
 | `client` | NTP client → `--source` | Optional PTP slave with `--ptp` | Follow a known upstream host |
+
+### Enable auto mode (internet sync, safe default)
+
+```bash
+# Preview — NTP client to pool.ntp.org; optional PTP if --ptp and HW supports it
+timesync apply auto --dry-run --iface eth0
+
+# Apply
+sudo timesync apply auto --iface eth0 --ntp-pool pool.ntp.org
+sudo timesync apply auto --iface eth0 --ptp   # also enable PTP slave when HW supports it
+```
+
+`auto` never enables local NTP serving or PTP grandmaster — use `apply master` explicitly for that.
 
 ### Enable NTP master (serve time locally)
 
@@ -219,15 +243,6 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 - Applying changes requires `sudo` and backs up existing files before overwrite.
 - `auto` will not enable local serving; use `apply master` explicitly.
 - PTP requires hardware timestamping — verify with `timesync doctor`.
-
-## Synara project
-
-This repository is registered as a Synara code project:
-
-- **Workspace:** `/Users/alex/company/standard/time-sync-cli`
-- **Metadata:** [`.synara/project.toml`](.synara/project.toml)
-
-In Synara, add/open a project pointing at the workspace path above (or clone the repo there). Default thread env mode: `worktree`.
 
 ## Roadmap / not yet implemented
 
