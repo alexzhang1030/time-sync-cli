@@ -131,14 +131,14 @@ func TestPlanClient_PTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
+	ptp4lCount := 0
 	for _, c := range plan.Changes {
 		if strings.Contains(c.Path, "ptp4l.conf") {
-			found = true
+			ptp4lCount++
 		}
 	}
-	if !found {
-		t.Error("expected ptp4l client config")
+	if ptp4lCount != 1 {
+		t.Errorf("expected exactly one ptp4l.conf change, got %d", ptp4lCount)
 	}
 }
 

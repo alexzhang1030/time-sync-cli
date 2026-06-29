@@ -109,14 +109,6 @@ func planChangesMaster(plan *model.Plan, opts model.ApplyOptions) {
 func planChangesClient(plan *model.Plan, opts model.ApplyOptions) {
 	if opts.PTP {
 		plan.Changes = append(plan.Changes, ptpClientChanges(opts.Iface)...)
-		plan.Changes = append(plan.Changes,
-			model.PlannedChange{
-				Kind:        "config",
-				Path:        configDir + "/ptp4l.conf",
-				Description: "PTP slave config (ptp4l)",
-				Content:     renderPTP4LClient(opts.Iface, opts.Source),
-			},
-		)
 	} else {
 		plan.Changes = append(plan.Changes,
 			model.PlannedChange{
