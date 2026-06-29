@@ -29,6 +29,7 @@ func init() {
 	rootCmd.AddCommand(doctorCmd())
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(applyCmd())
+	rootCmd.AddCommand(rollbackCmd())
 	rootCmd.AddCommand(tuiCmd())
 }
 
@@ -161,6 +162,9 @@ func runApply(opts model.ApplyOptions) error {
 		fmt.Println("\n(dry-run: no changes applied)")
 		return nil
 	}
+	if err := apply.ValidatePTPHardware(opts); err != nil {
+		return err
+	}
 	if err := apply.Apply(plan); err != nil {
 		return err
 	}
@@ -174,6 +178,20 @@ func tuiCmd() *cobra.Command {
 		Short: "Interactive terminal UI for role/source/interface selection",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return tui.Run()
+		},
+	}
+}
+
+func rollbackCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rollback",
+		Short: "Restore configuration files from the last apply backup",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := apply.Rollback(); err != nil {
+				return err
+			}
+			fmt.Println("Rollback completed successfully.")
+			return nil
 		},
 	}
 }

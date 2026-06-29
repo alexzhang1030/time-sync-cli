@@ -138,6 +138,12 @@ func TestPlanClient_PTP(t *testing.T) {
 	for _, c := range plan.Changes {
 		if strings.Contains(c.Path, "ptp4l.conf") {
 			ptp4lCount++
+			if !strings.Contains(c.Content, "unicast_listen") {
+				t.Error("expected unicast_listen in PTP client config")
+			}
+			if !strings.Contains(c.Content, "192.168.1.1") {
+				t.Error("expected source in unicast_master_table")
+			}
 		}
 	}
 	if ptp4lCount != 1 {

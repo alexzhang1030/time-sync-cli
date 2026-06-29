@@ -72,8 +72,7 @@ func planChangesAuto(plan *model.Plan, opts model.ApplyOptions) {
 	)
 
 	if opts.PTP {
-		plan.Warnings = append(plan.Warnings, "PTP in auto mode requires hardware timestamping; verify with timesync doctor")
-		plan.Changes = append(plan.Changes, ptpClientChanges(iface)...)
+		plan.Changes = append(plan.Changes, ptpClientChanges(iface, "")...)
 	}
 
 	plan.Warnings = append(plan.Warnings, "auto mode will NOT enable master/grandmaster serving without explicit apply master")
@@ -108,7 +107,7 @@ func planChangesMaster(plan *model.Plan, opts model.ApplyOptions) {
 
 func planChangesClient(plan *model.Plan, opts model.ApplyOptions) {
 	if opts.PTP {
-		plan.Changes = append(plan.Changes, ptpClientChanges(opts.Iface)...)
+		plan.Changes = append(plan.Changes, ptpClientChanges(opts.Iface, opts.Source)...)
 	} else {
 		plan.Changes = append(plan.Changes,
 			model.PlannedChange{
@@ -127,13 +126,17 @@ func planChangesClient(plan *model.Plan, opts model.ApplyOptions) {
 	}
 }
 
-func ptpClientChanges(iface string) []model.PlannedChange {
+func ptpClientChanges(iface, source string) []model.PlannedChange {
+	desc := "PTP slave/ordinary clock config (ptp4l)"
+	if source != "" {
+		desc = "PTP unicast slave config targeting " + source + " (ptp4l)"
+	}
 	return []model.PlannedChange{
 		{
 			Kind:        "config",
 			Path:        configDir + "/ptp4l.conf",
-			Description: "PTP slave/ordinary clock config (ptp4l)",
-			Content:     renderPTP4LClient(iface, ""),
+			Description: desc,
+			Content:     renderPTP4LClient(iface, source),
 		},
 		{
 			Kind:        "config",
@@ -222,7 +225,28 @@ ExecStart=/usr/sbin/chronyd -f /etc/timesync-cli/chrony.conf
 }
 
 func renderPTP4LClient(iface, source string) string {
-	_ = source
+	if source != "" {
+		return strings.TrimSpace(fmt.Sprintf(`
+[global]
+clock_servo           linreg
+summary_interval      0
+time_stamping         hardware
+tx_timestamp_timeout  10
+logAnnounceInterval   0
+logSyncInterval       -3
+logMinDelayReqInterval -3
+unicast_listen        1
+
+[unicast_master_table]
+address               %s
+logAnnounceInterval   0
+logSyncInterval       -3
+logMinDelayReqInterval -3
+
+[%s]
+network_transport     UDPv4
+`, source, iface)) + "\n"
+	}
 	return strings.TrimSpace(fmt.Sprintf(`
 [global]
 clock_servo           linreg

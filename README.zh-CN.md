@@ -114,7 +114,7 @@ sudo timesync apply client --iface eth0 --source 192.168.1.1
 sudo timesync apply client --iface eth0 --source 192.168.1.1 --ptp
 ```
 
-PTP 从端通过 `ptp4l` 在 L2 域内发现/跟随 Grandmaster；`--source` 预留给后续单播 PTP 目标。
+PTP 从端在指定 `--source` 时通过 `ptp4l` 单播跟随主站（见生成配置中的 `[unicast_master_table]`）。
 
 ### 交互式配置
 
@@ -248,6 +248,7 @@ timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run]
 timesync tui                                             # 交互式引导配置
+timesync rollback                                        # 从上次 apply 备份恢复
 ```
 
 不带 `--dry-run` 的 apply 需要 root（`sudo`），将：
@@ -271,10 +272,10 @@ timesync tui                                             # 交互式引导配置
 |------|------|
 | CI 矩阵构建产物（`linux/amd64`、`linux/arm64`） | 已完成 — 见 [releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 | 发行版打包（`.deb`、`.rpm`） | 已完成 |
-| PTP 单播客户端（`--source` → ptp4l unicast master） | 计划中 |
-| apply 前自动检测 PTP 硬件再启用 `--ptp` | 计划中 |
+| PTP 单播客户端（`--source` → ptp4l unicast master） | 已完成 |
+| apply 前自动检测 PTP 硬件再启用 `--ptp` | 已完成 |
 | 覆盖非 timesync 配置前的交互确认 | 计划中 |
-| `timesync rollback` 恢复备份 | 计划中 |
+| `timesync rollback` 恢复备份 | 已完成 |
 | 集群选主（避免多 master） | 范围外（设计如此） |
 | 富 TUI（方向键菜单） | 计划中 |
 | 深度 PTP 状态解析（端口状态、偏移） | 计划中 |

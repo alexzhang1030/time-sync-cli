@@ -114,7 +114,7 @@ sudo timesync apply client --iface eth0 --source 192.168.1.1
 sudo timesync apply client --iface eth0 --source 192.168.1.1 --ptp
 ```
 
-PTP slaves discover/follow the grandmaster on the L2 domain via `ptp4l`; the `--source` flag is reserved for future unicast PTP targeting.
+PTP slaves follow the grandmaster via `ptp4l` unicast when `--source` is set (see `[unicast_master_table]` in generated config).
 
 ### Interactive setup
 
@@ -248,6 +248,7 @@ timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run]
 timesync tui                                             # guided interactive setup
+timesync rollback                                        # restore files from last apply backup
 ```
 
 Apply without `--dry-run` requires root (`sudo`) and will:
@@ -271,10 +272,10 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 |---------|--------|
 | CI matrix build artifacts (`linux/amd64`, `linux/arm64`) | Done — see [releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 | Distro packaging (`.deb`, `.rpm`) | Done |
-| PTP unicast client (`--source` → ptp4l unicast master) | Planned |
-| Auto-detect PTP HW before enabling `--ptp` in apply | Planned |
+| PTP unicast client (`--source` → ptp4l unicast master) | Done |
+| Auto-detect PTP HW before enabling `--ptp` in apply | Done |
 | Interactive confirmation before overwriting non-timesync configs | Planned |
-| `timesync rollback` to restore backups | Planned |
+| `timesync rollback` to restore backups | Done |
 | Cluster leader election (multi-master avoidance) | Out of scope (by design) |
 | Rich TUI (arrow-key menus) | Planned |
 | Deep PTP status parsing (port state, offset) | Planned |
