@@ -107,6 +107,15 @@ func detectInterfaces() []InterfaceInfo {
 	return out
 }
 
+// InterfaceHardwareTS reports whether iface supports PTP hardware timestamping.
+func InterfaceHardwareTS(iface string) (bool, error) {
+	info, err := detectPTPCapability(iface)
+	if err != nil {
+		return false, err
+	}
+	return info.HardwareTS, nil
+}
+
 func detectPTPCapability(iface string) (PTPInfo, error) {
 	info := PTPInfo{Interface: iface}
 	cmd := exec.Command("ethtool", "-T", iface)

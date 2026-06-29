@@ -112,6 +112,9 @@ func RunWithIO(in io.Reader, out io.Writer) error {
 		fmt.Fprintln(out, "(dry-run: no changes applied)")
 		return nil
 	case "apply", "a", "y", "yes":
+		if err := apply.ValidatePTPHardware(opts); err != nil {
+			return err
+		}
 		if err := apply.Apply(plan); err != nil {
 			return err
 		}

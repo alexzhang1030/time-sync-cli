@@ -11,10 +11,10 @@ func TestWriteWithBackup(t *testing.T) {
 	target := filepath.Join(dir, "nested", "chrony.conf")
 	backupDir := filepath.Join(dir, "backups")
 
-	if err := writeWithBackup(target, "v1\n", backupDir); err != nil {
+	if _, _, err := writeWithBackup(target, "v1\n", backupDir); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeWithBackup(target, "v2\n", backupDir); err != nil {
+	if _, _, err := writeWithBackup(target, "v2\n", backupDir); err != nil {
 		t.Fatal(err)
 	}
 
