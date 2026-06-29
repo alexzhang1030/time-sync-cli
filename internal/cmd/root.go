@@ -54,7 +54,7 @@ func doctorCmd() *cobra.Command {
 func statusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Report sync health, role, source, offset, and service state",
+		Short: "Report sync health, role, NTP/PTP offset, port state, and service state",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report, err := status.Collect()
 			if err != nil {

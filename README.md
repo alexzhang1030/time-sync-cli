@@ -9,7 +9,7 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Area | What works |
 |------|------------|
 | Detection | `timesync doctor` — OS, systemd, required binaries, interfaces, PTP hardware timestamping via `ethtool -T` |
-| Status | `timesync status` — configured role, NTP offset/source, systemd unit state |
+| Status | `timesync status` — configured role, NTP/PTP offset and source, port state, path delay, systemd unit state |
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups |
 | Interactive setup | `timesync tui` — stdin prompts for role, interface, and apply/dry-run/cancel |
 | RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP drop-ins |
@@ -145,8 +145,9 @@ So after a successful sync:
 ### Verify RTC / sync state
 
 ```bash
-timesync status
+timesync status           # NTP + PTP sync health, port state, offset, path delay
 chronyc tracking          # NTP offset and reference
+pmc -u -b 0 'GET TIME_STATUS_NP'   # raw PTP offset (linuxptp)
 timedatectl status        # system clock + RTC sync flag
 ```
 
@@ -243,7 +244,7 @@ sudo mv timesync /usr/local/bin/
 
 ```bash
 timesync doctor                                          # detect OS, tools, interfaces, PTP caps
-timesync status                                          # sync health, role, source, offset
+timesync status                                          # sync health, role, NTP/PTP offset, port state
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run]
@@ -278,7 +279,7 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 | `timesync rollback` to restore backups | Done |
 | Cluster leader election (multi-master avoidance) | Out of scope (by design) |
 | Rich TUI (arrow-key menus) | Planned |
-| Deep PTP status parsing (port state, offset) | Planned |
+| Deep PTP status parsing (port state, offset) | Done |
 
 ## Development
 

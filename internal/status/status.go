@@ -29,11 +29,18 @@ type ChronyStatus struct {
 	Offset   string `json:"offset" yaml:"offset"`
 }
 
-// PTPStatus from ptp4l/phc2sys.
+// PTPStatus from ptp4l/phc2sys via pmc queries.
 type PTPStatus struct {
-	PTP4LActive   bool   `json:"ptp4l_active" yaml:"ptp4l_active"`
-	PHC2SysActive bool   `json:"phc2sys_active" yaml:"phc2sys_active"`
-	State         string `json:"state" yaml:"state"`
+	PTP4LActive      bool   `json:"ptp4l_active" yaml:"ptp4l_active"`
+	PHC2SysActive    bool   `json:"phc2sys_active" yaml:"phc2sys_active"`
+	Available        bool   `json:"available" yaml:"available"`
+	Detail           string `json:"detail,omitempty" yaml:"detail,omitempty"`
+	PortState        string `json:"port_state" yaml:"port_state"`
+	MasterOffset     string `json:"master_offset" yaml:"master_offset"`
+	OffsetFromMaster string `json:"offset_from_master" yaml:"offset_from_master"`
+	PathDelay        string `json:"path_delay" yaml:"path_delay"`
+	StepsRemoved     string `json:"steps_removed" yaml:"steps_removed"`
+	GMIdentity       string `json:"gm_identity" yaml:"gm_identity"`
 }
 
 // SystemdStatus for relevant units.
@@ -93,19 +100,39 @@ func ParseChronyTracking(line string) (source, offset string) {
 }
 
 func collectPTP() PTPStatus {
-	return PTPStatus{
+	s := PTPStatus{
 		PTP4LActive:   unitActive("ptp4l") == "active",
 		PHC2SysActive: unitActive("phc2sys") == "active",
-		State:         ptp4lState(),
 	}
+	if !s.PTP4LActive {
+		s.Detail = "ptp4l not running"
+		return s
+	}
+	portOut, err := pmcQuery("PORT_DATA_SET")
+	if err != nil {
+		s.Detail = "unable to query ptp4l via pmc"
+		return s
+	}
+	timeOut, _ := pmcQuery("TIME_STATUS_NP")
+	currentOut, _ := pmcQuery("CURRENT_DATA_SET")
+	metrics := ParsePTPMetrics(portOut, timeOut, currentOut)
+
+	s.Available = true
+	s.PortState = metrics.PortState
+	s.MasterOffset = metrics.MasterOffset
+	s.OffsetFromMaster = metrics.OffsetFromMaster
+	s.PathDelay = metrics.PathDelay
+	s.StepsRemoved = metrics.StepsRemoved
+	s.GMIdentity = metrics.GMIdentity
+	return s
 }
 
-func ptp4lState() string {
-	out, err := exec.Command("pmc", "-u", "-b", "0", "GET", "PORT_DATA_SET").Output()
+func pmcQuery(dataSet string) (string, error) {
+	out, err := exec.Command("pmc", "-u", "-b", "0", "GET", dataSet).Output()
 	if err != nil {
-		return "unknown"
+		return "", err
 	}
-	return strings.TrimSpace(string(out))
+	return string(out), nil
 }
 
 func configuredRole() string {
@@ -119,7 +146,19 @@ func configuredRole() string {
 func inferSyncState(r *Report) (role, source, offset string) {
 	if r.PTP.PTP4LActive {
 		role = "ptp"
-		source = r.PTP.State
+		switch {
+		case r.PTP.PortState != "":
+			source = r.PTP.PortState
+		case r.PTP.GMIdentity != "":
+			source = r.PTP.GMIdentity
+		default:
+			source = "ptp4l"
+		}
+		metrics := PTPMetrics{
+			MasterOffset:     r.PTP.MasterOffset,
+			OffsetFromMaster: r.PTP.OffsetFromMaster,
+		}
+		offset = metrics.PTPOffset()
 	}
 	if r.Chrony.Active {
 		role = "ntp"
@@ -156,5 +195,26 @@ func (r *Report) Summary() string {
 	fmt.Fprintf(&b, "\nPTP:\n")
 	fmt.Fprintf(&b, "  ptp4l:   %v\n", r.PTP.PTP4LActive)
 	fmt.Fprintf(&b, "  phc2sys: %v\n", r.PTP.PHC2SysActive)
+	if r.PTP.Available {
+		if r.PTP.PortState != "" {
+			fmt.Fprintf(&b, "  port state: %s\n", r.PTP.PortState)
+		}
+		if r.PTP.MasterOffset != "" {
+			fmt.Fprintf(&b, "  master offset: %s ns\n", r.PTP.MasterOffset)
+		} else if r.PTP.OffsetFromMaster != "" {
+			fmt.Fprintf(&b, "  offset from master: %s ns\n", r.PTP.OffsetFromMaster)
+		}
+		if r.PTP.PathDelay != "" {
+			fmt.Fprintf(&b, "  path delay: %s ns\n", r.PTP.PathDelay)
+		}
+		if r.PTP.StepsRemoved != "" {
+			fmt.Fprintf(&b, "  steps removed: %s\n", r.PTP.StepsRemoved)
+		}
+		if r.PTP.GMIdentity != "" {
+			fmt.Fprintf(&b, "  grandmaster: %s\n", r.PTP.GMIdentity)
+		}
+	} else if r.PTP.Detail != "" {
+		fmt.Fprintf(&b, "  (%s)\n", r.PTP.Detail)
+	}
 	return b.String()
 }
