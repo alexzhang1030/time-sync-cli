@@ -25,10 +25,12 @@ type Applier struct {
 
 // State records the last applied role configuration.
 type State struct {
-	Role      model.Role `json:"role"`
-	Iface     string     `json:"iface,omitempty"`
-	PTP       bool       `json:"ptp"`
-	AppliedAt string     `json:"applied_at"`
+	Role      model.Role        `json:"role"`
+	Iface     string            `json:"iface,omitempty"`
+	PTP       bool              `json:"ptp"`
+	AppliedAt string            `json:"applied_at"`
+	Backups   map[string]string `json:"backups,omitempty"`
+	Created   []string          `json:"created,omitempty"`
 }
 
 // LoadState reads the last applied configuration from disk.
@@ -76,16 +78,26 @@ func (a *Applier) Apply(plan *model.Plan) error {
 		return fmt.Errorf("create backup dir: %w", err)
 	}
 
+	backups := make(map[string]string)
+	var created []string
+
 	for _, change := range plan.Changes {
 		if change.Path == "" || change.Content == "" {
 			continue
 		}
-		if err := writeWithBackup(change.Path, change.Content, a.BackupDir); err != nil {
+		backupPath, wasCreated, err := writeWithBackup(change.Path, change.Content, a.BackupDir)
+		if err != nil {
 			return fmt.Errorf("write %s: %w", change.Path, err)
+		}
+		if backupPath != "" {
+			backups[change.Path] = backupPath
+		}
+		if wasCreated {
+			created = append(created, change.Path)
 		}
 	}
 
-	if err := a.writeState(plan); err != nil {
+	if err := a.writeState(plan, backups, created); err != nil {
 		return err
 	}
 
@@ -105,22 +117,52 @@ func (a *Applier) Apply(plan *model.Plan) error {
 	return nil
 }
 
-func (a *Applier) writeState(plan *model.Plan) error {
+func (a *Applier) writeState(plan *model.Plan, backups map[string]string, created []string) error {
+	statePath := filepath.Join(a.ConfigDir, "state.json")
+
 	state := State{
 		Role:      plan.Role,
 		Iface:     plan.Iface,
 		PTP:       plan.PTP,
 		AppliedAt: time.Now().UTC().Format(time.RFC3339),
+		Backups:   backups,
+		Created:   created,
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	path := filepath.Join(a.ConfigDir, "state.json")
-	if err := writeWithBackup(path, string(data)+"\n", a.BackupDir); err != nil {
+
+	backupPath, wasCreated, err := writeWithBackup(statePath, string(data)+"\n", a.BackupDir)
+	if err != nil {
 		return fmt.Errorf("write state: %w", err)
 	}
+	if backupPath != "" {
+		state.Backups[statePath] = backupPath
+	}
+	if wasCreated {
+		state.Created = append(state.Created, statePath)
+	}
+
+	if len(state.Backups) != len(backups) || (wasCreated && !contains(created, statePath)) {
+		data, err = json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal state: %w", err)
+		}
+		if err := os.WriteFile(statePath, append(data, '\n'), 0o644); err != nil {
+			return fmt.Errorf("update state metadata: %w", err)
+		}
+	}
 	return nil
+}
+
+func contains(list []string, item string) bool {
+	for _, v := range list {
+		if v == item {
+			return true
+		}
+	}
+	return false
 }
 
 // UnitsForPlan returns systemd units that should be enabled and restarted.
@@ -151,21 +193,28 @@ func unitFromChangePath(path string) string {
 	}
 }
 
-func writeWithBackup(path, content, backupDir string) error {
+func writeWithBackup(path, content, backupDir string) (backupPath string, created bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return "", false, err
 	}
 	if existing, err := os.ReadFile(path); err == nil {
 		if err := os.MkdirAll(backupDir, 0o755); err != nil {
-			return err
+			return "", false, err
 		}
 		name := fmt.Sprintf("%s.%s.bak", filepath.Base(path), time.Now().Format("20060102-150405"))
-		backupPath := filepath.Join(backupDir, name)
+		backupPath = filepath.Join(backupDir, name)
 		if err := os.WriteFile(backupPath, existing, 0o644); err != nil {
-			return fmt.Errorf("backup %s: %w", path, err)
+			return "", false, fmt.Errorf("backup %s: %w", path, err)
 		}
+	} else if os.IsNotExist(err) {
+		created = true
+	} else {
+		return "", false, err
 	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return backupPath, created, err
+	}
+	return backupPath, created, nil
 }
 
 func runSystemctl(args ...string) error {

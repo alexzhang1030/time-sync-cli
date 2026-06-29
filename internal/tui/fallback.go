@@ -150,7 +150,7 @@ func runApplyFallback(reader *bufio.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	msg, err := executeApplyAction(plan, action)
+	msg, err := executeApplyAction(opts, plan, action)
 	if err != nil {
 		return err
 	}

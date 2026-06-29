@@ -9,11 +9,11 @@
 | 领域 | 能力 |
 |------|------|
 | 检测 | `timesync doctor` — OS、systemd、依赖二进制、网卡、通过 `ethtool -T` 检测 PTP 硬件时间戳 |
-| 状态 | `timesync status` — 已配置角色、NTP 偏移/源、systemd unit 状态 |
+| 状态 | `timesync status` — 已配置角色、NTP/PTP 偏移与源、端口状态、路径延迟、systemd unit 状态 |
 | 配置 | `timesync apply auto\|master\|client`，支持 `--dry-run`、可选 `--ptp`、文件备份 |
 | 交互配置 | `timesync tui` — 方向键菜单（doctor/status/apply）；非 TTY 时回退为编号问答 |
 | RTC 回写 | chrony 配置中的 `rtcsync`；PTP drop-in 中的 `phc2sys -w` |
-| 发布 | [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) 提供 `linux/amd64`、`linux/arm64` 预编译包 |
+| 发布 | [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) 提供 `linux/amd64`、`linux/arm64` 预编译包及 `.deb`/`.rpm` |
 
 ## NTP 和 PTP 是什么？
 
@@ -114,7 +114,7 @@ sudo timesync apply client --iface eth0 --source 192.168.1.1
 sudo timesync apply client --iface eth0 --source 192.168.1.1 --ptp
 ```
 
-PTP 从端通过 `ptp4l` 在 L2 域内发现/跟随 Grandmaster；`--source` 预留给后续单播 PTP 目标。
+PTP 从端在指定 `--source` 时通过 `ptp4l` 单播跟随主站（见生成配置中的 `[unicast_master_table]`）。
 
 ### 交互式配置
 
@@ -154,8 +154,9 @@ timesync tui
 ### 验证 RTC / 同步状态
 
 ```bash
-timesync status
+timesync status           # NTP + PTP 同步健康度、端口状态、偏移、路径延迟
 chronyc tracking          # NTP 偏移与参考源
+pmc -u -b 0 'GET TIME_STATUS_NP'   # 原始 PTP 偏移（linuxptp）
 timedatectl status        # 系统时钟 + RTC 同步标志
 ```
 
@@ -220,6 +221,27 @@ chmod +x timesync
 sudo mv timesync /usr/local/bin/
 ```
 
+### 发行版包（`.deb`、`.rpm`）
+
+带 tag 的 release 提供 `linux/amd64` 与 `linux/arm64` 原生包：
+
+| 格式 | 示例产物 |
+|------|----------|
+| Debian/Ubuntu（`.deb`） | `timesync_<version>_amd64.deb` |
+| RHEL/Fedora（`.rpm`） | `timesync-<version>-1.x86_64.rpm` |
+
+```bash
+# Debian/Ubuntu（amd64）
+curl -fsSLO https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync_<version>_amd64.deb
+sudo apt install ./timesync_<version>_amd64.deb
+
+# RHEL/Fedora（amd64）
+curl -fsSLO https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-<version>-1.x86_64.rpm
+sudo dnf install ./timesync-<version>-1.x86_64.rpm
+```
+
+包将二进制安装到 `/usr/bin/timesync`，并声明运行时依赖 `chrony`、`ethtool`（推荐 `linuxptp` 用于 PTP 角色）。
+
 ### 从源码构建
 
 ```bash
@@ -231,11 +253,12 @@ sudo mv timesync /usr/local/bin/
 
 ```bash
 timesync doctor                                          # 检测 OS、工具、网卡、PTP 能力
-timesync status                                          # 同步健康度、角色、源、偏移
+timesync status                                          # 同步健康度、角色、NTP/PTP 偏移、端口状态
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run]
 timesync tui                                             # 交互式引导配置
+timesync rollback                                        # 从上次 apply 备份恢复
 ```
 
 不带 `--dry-run` 的 apply 需要 root（`sudo`），将：
@@ -258,14 +281,14 @@ timesync tui                                             # 交互式引导配置
 | 功能 | 状态 |
 |------|------|
 | CI 矩阵构建产物（`linux/amd64`、`linux/arm64`） | 已完成 — 见 [releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
-| 发行版打包（`.deb`、`.rpm`） | 计划中 |
-| PTP 单播客户端（`--source` → ptp4l unicast master） | 计划中 |
-| apply 前自动检测 PTP 硬件再启用 `--ptp` | 计划中 |
+| 发行版打包（`.deb`、`.rpm`） | 已完成 |
+| PTP 单播客户端（`--source` → ptp4l unicast master） | 已完成 |
+| apply 前自动检测 PTP 硬件再启用 `--ptp` | 已完成 |
 | 覆盖非 timesync 配置前的交互确认 | 计划中 |
-| `timesync rollback` 恢复备份 | 计划中 |
+| `timesync rollback` 恢复备份 | 已完成 |
 | 集群选主（避免多 master） | 范围外（设计如此） |
 | 富 TUI（方向键菜单） | 已完成 |
-| 深度 PTP 状态解析（端口状态、偏移） | 计划中 |
+| 深度 PTP 状态解析（端口状态、偏移） | 已完成 |
 
 ## 开发
 

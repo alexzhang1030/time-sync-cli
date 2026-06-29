@@ -47,8 +47,72 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
 
-  release:
+  package-smoke:
     needs: test-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: timesync-linux-amd64
+          path: .
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.2
+
+      - name: Build packages (smoke)
+        run: |
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          packaging/build-packages.sh 0.0.0-ci amd64 timesync-linux-amd64 dist/packages
+          test -n "$(ls dist/packages/*.deb dist/packages/*.rpm)"
+
+  package:
+    needs: test-and-build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            artifact: timesync-linux-amd64
+          - goarch: arm64
+            artifact: timesync-linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: .
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.2
+
+      - name: Build .deb and .rpm
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          packaging/build-packages.sh "$VERSION" "${{ matrix.goarch }}" "${{ matrix.artifact }}" dist/packages
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.goarch }}
+          path: dist/packages/*
+
+  release:
+    needs: [test-and-build, package]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -57,7 +121,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: timesync-linux-*
+          pattern: "*"
           merge-multiple: true
 
       - uses: softprops/action-gh-release@v2

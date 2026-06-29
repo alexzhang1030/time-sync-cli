@@ -25,11 +25,14 @@ func buildPlan(opts model.ApplyOptions) (*model.Plan, error) {
 	return planner.Plan(opts)
 }
 
-func executeApplyAction(plan *model.Plan, action string) (string, error) {
+func executeApplyAction(opts model.ApplyOptions, plan *model.Plan, action string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(action)) {
 	case "dry-run", "d", "":
 		return "(dry-run: no changes applied)", nil
 	case "apply", "a", "y", "yes":
+		if err := apply.ValidatePTPHardware(opts); err != nil {
+			return "", err
+		}
 		if err := apply.Apply(plan); err != nil {
 			return "", err
 		}

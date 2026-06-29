@@ -411,7 +411,7 @@ func (m appModel) applySelect() (appModel, tea.Cmd) {
 			m.screen = screenDone
 			return m, nil
 		case 1:
-			msg, err := executeApplyAction(m.plan, "apply")
+			msg, err := executeApplyAction(m.opts, m.plan, "apply")
 			if err != nil {
 				m.finalErr = err
 				m.content = fmt.Sprintf("Apply failed: %v\n", err)

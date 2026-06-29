@@ -9,11 +9,11 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Area | What works |
 |------|------------|
 | Detection | `timesync doctor` — OS, systemd, required binaries, interfaces, PTP hardware timestamping via `ethtool -T` |
-| Status | `timesync status` — configured role, NTP offset/source, systemd unit state |
+| Status | `timesync status` — configured role, NTP/PTP offset and source, port state, path delay, systemd unit state |
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups |
 | Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply; falls back to numbered prompts on non-TTY |
 | RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP drop-ins |
-| Releases | Pre-built `linux/amd64` and `linux/arm64` binaries on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
+| Releases | Pre-built `linux/amd64` and `linux/arm64` binaries plus `.deb`/`.rpm` on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 
 ## What are NTP and PTP?
 
@@ -114,7 +114,7 @@ sudo timesync apply client --iface eth0 --source 192.168.1.1
 sudo timesync apply client --iface eth0 --source 192.168.1.1 --ptp
 ```
 
-PTP slaves discover/follow the grandmaster on the L2 domain via `ptp4l`; the `--source` flag is reserved for future unicast PTP targeting.
+PTP slaves follow the grandmaster via `ptp4l` unicast when `--source` is set (see `[unicast_master_table]` in generated config).
 
 ### Interactive setup
 
@@ -154,8 +154,9 @@ So after a successful sync:
 ### Verify RTC / sync state
 
 ```bash
-timesync status
+timesync status           # NTP + PTP sync health, port state, offset, path delay
 chronyc tracking          # NTP offset and reference
+pmc -u -b 0 'GET TIME_STATUS_NP'   # raw PTP offset (linuxptp)
 timedatectl status        # system clock + RTC sync flag
 ```
 
@@ -220,6 +221,27 @@ chmod +x timesync
 sudo mv timesync /usr/local/bin/
 ```
 
+### Distro packages (`.deb`, `.rpm`)
+
+Tagged releases include native packages for `linux/amd64` and `linux/arm64`:
+
+| Format | Example artifact |
+|--------|------------------|
+| Debian/Ubuntu (`.deb`) | `timesync_<version>_amd64.deb` |
+| RHEL/Fedora (`.rpm`) | `timesync-<version>-1.x86_64.rpm` |
+
+```bash
+# Debian/Ubuntu (amd64)
+curl -fsSLO https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync_<version>_amd64.deb
+sudo apt install ./timesync_<version>_amd64.deb
+
+# RHEL/Fedora (amd64)
+curl -fsSLO https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-<version>-1.x86_64.rpm
+sudo dnf install ./timesync-<version>-1.x86_64.rpm
+```
+
+Packages install `/usr/bin/timesync` and declare runtime dependencies on `chrony` and `ethtool` (recommends `linuxptp` for PTP roles).
+
 ### Build from source
 
 ```bash
@@ -231,11 +253,12 @@ sudo mv timesync /usr/local/bin/
 
 ```bash
 timesync doctor                                          # detect OS, tools, interfaces, PTP caps
-timesync status                                          # sync health, role, source, offset
+timesync status                                          # sync health, role, NTP/PTP offset, port state
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run]
 timesync tui                                             # guided interactive setup
+timesync rollback                                        # restore files from last apply backup
 ```
 
 Apply without `--dry-run` requires root (`sudo`) and will:
@@ -258,14 +281,14 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 | Feature | Status |
 |---------|--------|
 | CI matrix build artifacts (`linux/amd64`, `linux/arm64`) | Done — see [releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
-| Distro packaging (`.deb`, `.rpm`) | Planned |
-| PTP unicast client (`--source` → ptp4l unicast master) | Planned |
-| Auto-detect PTP HW before enabling `--ptp` in apply | Planned |
+| Distro packaging (`.deb`, `.rpm`) | Done |
+| PTP unicast client (`--source` → ptp4l unicast master) | Done |
+| Auto-detect PTP HW before enabling `--ptp` in apply | Done |
 | Interactive confirmation before overwriting non-timesync configs | Planned |
-| `timesync rollback` to restore backups | Planned |
+| `timesync rollback` to restore backups | Done |
 | Cluster leader election (multi-master avoidance) | Out of scope (by design) |
 | Rich TUI (arrow-key menus) | Done |
-| Deep PTP status parsing (port state, offset) | Planned |
+| Deep PTP status parsing (port state, offset) | Done |
 
 ## Development
 
