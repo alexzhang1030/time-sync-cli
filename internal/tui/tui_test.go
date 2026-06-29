@@ -30,6 +30,28 @@ func TestParseRoleChoice(t *testing.T) {
 	}
 }
 
+func TestParseMainAction(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"1", "doctor"},
+		{"doctor", "doctor"},
+		{"2", "status"},
+		{"3", "apply"},
+		{"4", "quit"},
+	}
+	for _, tt := range tests {
+		got, err := tui.ParseMainAction(tt.in)
+		if err != nil {
+			t.Fatalf("ParseMainAction(%q): %v", tt.in, err)
+		}
+		if got != tt.want {
+			t.Errorf("ParseMainAction(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestResolveInterfaceChoice(t *testing.T) {
 	ifaces := []detect.InterfaceInfo{
 		{Name: "eth0", Up: true},
@@ -55,7 +77,7 @@ func TestParseYesNo(t *testing.T) {
 }
 
 func TestRunWithIO_DryRunAuto(t *testing.T) {
-	in := strings.NewReader("1\n\n\n\n\n")
+	in := strings.NewReader("3\n1\n\n\n\n\n")
 	var out strings.Builder
 	err := tui.RunWithIO(in, &out)
 	if err != nil {
@@ -66,5 +88,17 @@ func TestRunWithIO_DryRunAuto(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "dry-run") {
 		t.Error("expected dry-run message")
+	}
+}
+
+func TestRunWithIO_Doctor(t *testing.T) {
+	in := strings.NewReader("1\n\n4\n")
+	var out strings.Builder
+	err := tui.RunWithIO(in, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "OS:") {
+		t.Error("expected doctor output")
 	}
 }

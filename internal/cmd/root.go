@@ -175,7 +175,7 @@ func runApply(opts model.ApplyOptions) error {
 func tuiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tui",
-		Short: "Interactive terminal UI for role/source/interface selection",
+		Short: "Interactive terminal UI with arrow-key menus for doctor, status, and apply",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return tui.Run()
 		},
