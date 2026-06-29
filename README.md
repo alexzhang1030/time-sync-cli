@@ -244,15 +244,6 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 - `auto` will not enable local serving; use `apply master` explicitly.
 - PTP requires hardware timestamping — verify with `timesync doctor`.
 
-## Synara project
-
-This repository is registered as a Synara code project:
-
-- **Workspace:** `/Users/alex/company/standard/time-sync-cli`
-- **Metadata:** [`.synara/project.toml`](.synara/project.toml)
-
-In Synara, add/open a project pointing at the workspace path above (or clone the repo there). Default thread env mode: `worktree`.
-
 ## Roadmap / not yet implemented
 
 | Feature | Status |

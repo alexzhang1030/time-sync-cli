@@ -244,15 +244,6 @@ timesync tui                                             # 交互式引导配置
 - `auto` 不会启用本地授时；需显式 `apply master`。
 - PTP 需要硬件时间戳 — 用 `timesync doctor` 确认。
 
-## Synara 项目
-
-本仓库已注册为 Synara 代码项目：
-
-- **工作区：** `/Users/alex/company/standard/time-sync-cli`
-- **元数据：** [`.synara/project.toml`](.synara/project.toml)
-
-在 Synara 中添加/打开指向上述路径的项目（或 clone 到该路径）。默认 thread 环境模式：`worktree`。
-
 ## 路线图 / 尚未实现
 
 | 功能 | 状态 |
