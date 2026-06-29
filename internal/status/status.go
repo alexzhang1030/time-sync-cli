@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/alexzhang1030/time-sync-cli/internal/apply"
 )
 
 // Report holds read-only status from system time services.
@@ -13,6 +15,7 @@ type Report struct {
 	PTP      PTPStatus      `json:"ptp" yaml:"ptp"`
 	Systemd  SystemdStatus  `json:"systemd" yaml:"systemd"`
 	Role     string         `json:"role" yaml:"role"`
+	ConfiguredRole string   `json:"configured_role" yaml:"configured_role"`
 	Source   string         `json:"source" yaml:"source"`
 	Offset   string         `json:"offset" yaml:"offset"`
 	Healthy  bool           `json:"healthy" yaml:"healthy"`
@@ -46,6 +49,7 @@ func Collect() (*Report, error) {
 	r.Systemd = collectSystemd()
 	r.Chrony = collectChrony()
 	r.PTP = collectPTP()
+	r.ConfiguredRole = configuredRole()
 	r.Role, r.Source, r.Offset = inferSyncState(r)
 	r.Healthy = r.Chrony.Active || r.PTP.PTP4LActive
 	return r, nil
@@ -104,6 +108,14 @@ func ptp4lState() string {
 	return strings.TrimSpace(string(out))
 }
 
+func configuredRole() string {
+	state, err := apply.LoadState("")
+	if err != nil {
+		return ""
+	}
+	return string(state.Role)
+}
+
 func inferSyncState(r *Report) (role, source, offset string) {
 	if r.PTP.PTP4LActive {
 		role = "ptp"
@@ -124,6 +136,9 @@ func inferSyncState(r *Report) (role, source, offset string) {
 func (r *Report) Summary() string {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "Sync health: %v\n", r.Healthy)
+	if r.ConfiguredRole != "" {
+		fmt.Fprintf(&b, "Configured role: %s\n", r.ConfiguredRole)
+	}
 	fmt.Fprintf(&b, "Active role: %s\n", r.Role)
 	fmt.Fprintf(&b, "Source: %s\n", r.Source)
 	if r.Offset != "" {

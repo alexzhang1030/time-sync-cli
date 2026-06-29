@@ -24,8 +24,13 @@ timesync status                                          # sync health, role, so
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run]
-timesync tui                                             # (coming soon)
+timesync tui                                             # guided interactive setup
 ```
+
+Apply without `--dry-run` requires root (`sudo`) and will:
+- write configs under `/etc/timesync-cli/`
+- backup any existing target files to `/etc/timesync-cli/backups/`
+- install systemd drop-ins and restart affected services
 
 ## Roles
 
@@ -40,6 +45,7 @@ timesync tui                                             # (coming soon)
 - Config generated under `/etc/timesync-cli/` — vendor chrony/ptp4l files are not mutated directly.
 - Systemd drop-ins install dedicated unit overrides.
 - `--dry-run` previews all planned changes without root writes.
+- Applying changes requires `sudo` and backs up existing files before overwrite.
 - `auto` will not enable local serving; use `apply master` explicitly.
 - PTP requires hardware timestamping — verify with `timesync doctor`.
 

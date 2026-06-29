@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/alexzhang1030/time-sync-cli/internal/apply"
 	"github.com/alexzhang1030/time-sync-cli/internal/detect"
 	"github.com/alexzhang1030/time-sync-cli/internal/model"
 	"github.com/alexzhang1030/time-sync-cli/internal/planner"
 	"github.com/alexzhang1030/time-sync-cli/internal/status"
+	"github.com/alexzhang1030/time-sync-cli/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -159,7 +161,11 @@ func runApply(opts model.ApplyOptions) error {
 		fmt.Println("\n(dry-run: no changes applied)")
 		return nil
 	}
-	return fmt.Errorf("apply without --dry-run is not yet implemented; use --dry-run to preview changes")
+	if err := apply.Apply(plan); err != nil {
+		return err
+	}
+	fmt.Println("\nConfiguration applied successfully.")
+	return nil
 }
 
 func tuiCmd() *cobra.Command {
@@ -167,7 +173,7 @@ func tuiCmd() *cobra.Command {
 		Use:   "tui",
 		Short: "Interactive terminal UI for role/source/interface selection",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("TUI not yet implemented; use apply subcommands with --dry-run")
+			return tui.Run()
 		},
 	}
 }

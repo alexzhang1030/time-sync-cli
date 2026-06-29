@@ -50,14 +50,17 @@ func TestPlanAuto_WithPTP(t *testing.T) {
 	if !plan.PTP {
 		t.Error("expected PTP enabled in plan")
 	}
-	ptpFound := false
+	hasPTP4L, hasPHC2Sys := false, false
 	for _, c := range plan.Changes {
-		if strings.Contains(c.Path, "ptp4l.conf") {
-			ptpFound = true
+		if strings.Contains(c.Path, "ptp4l.service.d") {
+			hasPTP4L = true
+		}
+		if strings.Contains(c.Path, "phc2sys.service.d") {
+			hasPHC2Sys = true
 		}
 	}
-	if !ptpFound {
-		t.Error("expected ptp4l config in auto+ptp plan")
+	if !hasPTP4L || !hasPHC2Sys {
+		t.Errorf("expected ptp4l and phc2sys drop-ins, ptp4l=%v phc2sys=%v", hasPTP4L, hasPHC2Sys)
 	}
 }
 
