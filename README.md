@@ -10,7 +10,7 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 |------|------------|
 | Detection | `timesync doctor` — OS, systemd, required binaries, interfaces, PTP hardware timestamping via `ethtool -T` |
 | Status | `timesync status` — configured role, NTP/PTP offset and source, port state, path delay, systemd unit state |
-| Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups |
+| Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups, `--yes` to confirm overwrites |
 | Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply; falls back to numbered prompts on non-TTY |
 | RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP drop-ins |
 | Releases | Pre-built `linux/amd64` and `linux/arm64` binaries plus `.deb`/`.rpm` on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
@@ -254,9 +254,9 @@ sudo mv timesync /usr/local/bin/
 ```bash
 timesync doctor                                          # detect OS, tools, interfaces, PTP caps
 timesync status                                          # sync health, role, NTP/PTP offset, port state
-timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run]
-timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run]
-timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run]
+timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run] [--yes]
+timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run] [--yes]
+timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run] [--yes]
 timesync tui                                             # guided interactive setup
 timesync rollback                                        # restore files from last apply backup
 ```
@@ -267,12 +267,28 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 - backup any existing target files to `/etc/timesync-cli/backups/`
 - install systemd drop-ins and restart affected services
 
+### Overwrite confirmation
+
+If a target config file already exists but was **not** created by timesync (no
+prior `state.json` record and no `timesync-cli` marker), apply asks before
+overwriting it:
+
+- **Interactive terminal:** lists the affected files and prompts `y/N`.
+- **Non-interactive / CI:** refuses and exits with an error unless `--yes` is passed.
+- **`--yes`:** skips the prompt and overwrites (existing contents are still backed up first).
+
+```bash
+# CI / scripted apply that may overwrite hand-written configs
+sudo timesync apply client --iface eth0 --source 192.168.1.1 --yes
+```
+
 ## Safety model
 
 - Config generated under `/etc/timesync-cli/` — vendor chrony/ptp4l files are not mutated directly.
 - Systemd drop-ins install dedicated unit overrides.
 - `--dry-run` previews all planned changes without root writes.
 - Applying changes requires `sudo` and backs up existing files before overwrite.
+- Overwriting a file timesync did not create requires confirmation (`y/N` on a TTY, or `--yes` in CI).
 - `auto` will not enable local serving; use `apply master` explicitly.
 - PTP requires hardware timestamping — verify with `timesync doctor`.
 
@@ -284,7 +300,7 @@ Apply without `--dry-run` requires root (`sudo`) and will:
 | Distro packaging (`.deb`, `.rpm`) | Done |
 | PTP unicast client (`--source` → ptp4l unicast master) | Done |
 | Auto-detect PTP HW before enabling `--ptp` in apply | Done |
-| Interactive confirmation before overwriting non-timesync configs | Planned |
+| Interactive confirmation before overwriting non-timesync configs | Done |
 | `timesync rollback` to restore backups | Done |
 | Cluster leader election (multi-master avoidance) | Out of scope (by design) |
 | Rich TUI (arrow-key menus) | Done |

@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/alexzhang1030/time-sync-cli/internal/apply"
 	"github.com/alexzhang1030/time-sync-cli/internal/detect"
 	"github.com/alexzhang1030/time-sync-cli/internal/model"
 	"github.com/alexzhang1030/time-sync-cli/internal/planner"
@@ -45,6 +46,7 @@ const (
 	applyStepPTPClient
 	applyStepPlan
 	applyStepAction
+	applyStepConfirm
 )
 
 type doctorResultMsg struct {
@@ -85,6 +87,7 @@ type appModel struct {
 	textLabel     string
 	yesNoQuestion string
 	actionItems   []string
+	conflicts     []string
 
 	finalMessage string
 	finalErr     error
@@ -279,7 +282,7 @@ func (m appModel) handleBack(msg tea.KeyMsg) (appModel, tea.Cmd) {
 
 func (m appModel) updateApply(msg tea.KeyMsg) (appModel, tea.Cmd) {
 	switch m.applyStep {
-	case applyStepRole, applyStepIface, applyStepPTPAuto, applyStepPTPMaster, applyStepPTPClient, applyStepAction:
+	case applyStepRole, applyStepIface, applyStepPTPAuto, applyStepPTPMaster, applyStepPTPClient, applyStepAction, applyStepConfirm:
 		return m.updateApplyMenu(msg)
 	case applyStepIfaceText, applyStepNTPPool, applyStepCIDR, applyStepSource:
 		return m.updateApplyText(msg)
@@ -411,24 +414,52 @@ func (m appModel) applySelect() (appModel, tea.Cmd) {
 			m.screen = screenDone
 			return m, nil
 		case 1:
-			msg, err := executeApplyAction(m.opts, m.plan, "apply")
+			conflicts, err := apply.UnmanagedConflicts(m.plan)
 			if err != nil {
 				m.finalErr = err
-				m.content = fmt.Sprintf("Apply failed: %v\n", err)
-			} else {
-				m.finalMessage = msg
-				m.content = msg + "\n\n" + planner.FormatPlan(m.plan)
+				m.content = fmt.Sprintf("Conflict check failed: %v\n", err)
+				m.viewport.SetContent(m.content)
+				m.screen = screenDone
+				return m, nil
 			}
-			m.viewport.SetContent(m.content)
-			m.screen = screenDone
-			return m, nil
+			if len(conflicts) > 0 && !m.opts.Yes {
+				m.conflicts = conflicts
+				m.applyStep = applyStepConfirm
+				m.applyItems = []string{"No, cancel", "Yes, overwrite"}
+				m.applyCursor = 0
+				return m, nil
+			}
+			return m.doApply()
 		case 2:
 			m.content = "Cancelled."
 			m.viewport.SetContent(m.content)
 			m.screen = screenDone
 			return m, nil
 		}
+	case applyStepConfirm:
+		if m.applyCursor == 1 {
+			m.opts.Yes = true
+			return m.doApply()
+		}
+		m.content = "Cancelled; no changes applied."
+		m.viewport.SetContent(m.content)
+		m.screen = screenDone
+		return m, nil
 	}
+	return m, nil
+}
+
+func (m appModel) doApply() (appModel, tea.Cmd) {
+	msg, err := executeApplyAction(m.opts, m.plan, "apply")
+	if err != nil {
+		m.finalErr = err
+		m.content = fmt.Sprintf("Apply failed: %v\n", err)
+	} else {
+		m.finalMessage = msg
+		m.content = msg + "\n\n" + planner.FormatPlan(m.plan)
+	}
+	m.viewport.SetContent(m.content)
+	m.screen = screenDone
 	return m, nil
 }
 
@@ -487,6 +518,9 @@ func (m appModel) applyBack() {
 		m.textLabel = "Upstream host or IP"
 	case applyStepAction:
 		m.applyStep = applyStepPlan
+	case applyStepConfirm:
+		m.applyStep = applyStepAction
+		m.applyItems = nil
 	}
 	m.applyCursor = 0
 }
@@ -527,6 +561,9 @@ func (m appModel) viewApply() string {
 		return renderViewport("Apply — planned changes", m.viewport, "enter continue · esc back · q quit")
 	case applyStepAction:
 		return renderMenu("Apply — choose action", m.actionItems, m.applyCursor, "↑/↓ navigate · enter select · esc back · q quit")
+	case applyStepConfirm:
+		title := "Apply — confirm overwrite\n\n" + formatConflictSummary(m.conflicts)
+		return renderMenu(title, m.applyItems, m.applyCursor, "↑/↓ navigate · enter select · esc back · q quit")
 	}
 	return ""
 }
