@@ -29,38 +29,47 @@ remove_managed_unit() {
   fi
 }
 
-echo "Stopping timesync-managed PTP services..."
-run_systemctl stop phc2sys.service
-run_systemctl stop ptp4l.service
-run_systemctl disable phc2sys.service
-run_systemctl disable ptp4l.service
-
-echo "Removing timesync-managed systemd files..."
-remove_path "/etc/systemd/system/chrony.service.d/timesync-cli.conf"
-remove_path "/etc/systemd/system/chronyd.service.d/timesync-cli.conf"
-remove_path "/etc/systemd/system/ptp4l.service.d/timesync-cli.conf"
-remove_path "/etc/systemd/system/phc2sys.service.d/timesync-cli.conf"
-remove_managed_unit "/etc/systemd/system/ptp4l.service"
-remove_managed_unit "/etc/systemd/system/phc2sys.service"
-
-for dir in \
-  /etc/systemd/system/chrony.service.d \
-  /etc/systemd/system/chronyd.service.d \
-  /etc/systemd/system/ptp4l.service.d \
-  /etc/systemd/system/phc2sys.service.d; do
-  if [[ -d "${dir}" ]]; then
-    # shellcheck disable=SC2086
-    ${SUDO} rmdir "${dir}" >/dev/null 2>&1 || true
-  fi
-done
-
 echo "Removing timesync config state..."
-remove_path "/etc/timesync-cli"
+CONFIG_REMOVED=0
+if command -v timesync >/dev/null 2>&1; then
+  # shellcheck disable=SC2086
+  if ${SUDO} timesync uninstall --yes >/dev/null 2>&1; then
+    CONFIG_REMOVED=1
+  fi
+fi
 
-run_systemctl daemon-reload
-run_systemctl reset-failed chrony.service chronyd.service ptp4l.service phc2sys.service
-run_systemctl try-restart chrony.service
-run_systemctl try-restart chronyd.service
+if [[ "${CONFIG_REMOVED}" -eq 0 ]]; then
+  echo "Stopping timesync-managed PTP services..."
+  run_systemctl stop phc2sys.service
+  run_systemctl stop ptp4l.service
+  run_systemctl disable phc2sys.service
+  run_systemctl disable ptp4l.service
+
+  echo "Removing timesync-managed systemd files..."
+  remove_path "/etc/systemd/system/chrony.service.d/timesync-cli.conf"
+  remove_path "/etc/systemd/system/chronyd.service.d/timesync-cli.conf"
+  remove_path "/etc/systemd/system/ptp4l.service.d/timesync-cli.conf"
+  remove_path "/etc/systemd/system/phc2sys.service.d/timesync-cli.conf"
+  remove_managed_unit "/etc/systemd/system/ptp4l.service"
+  remove_managed_unit "/etc/systemd/system/phc2sys.service"
+
+  for dir in \
+    /etc/systemd/system/chrony.service.d \
+    /etc/systemd/system/chronyd.service.d \
+    /etc/systemd/system/ptp4l.service.d \
+    /etc/systemd/system/phc2sys.service.d; do
+    if [[ -d "${dir}" ]]; then
+      # shellcheck disable=SC2086
+      ${SUDO} rmdir "${dir}" >/dev/null 2>&1 || true
+    fi
+  done
+
+  remove_path "/etc/timesync-cli"
+  run_systemctl daemon-reload
+  run_systemctl reset-failed chrony.service chronyd.service ptp4l.service phc2sys.service
+  run_systemctl try-restart chrony.service
+  run_systemctl try-restart chronyd.service
+fi
 
 if command -v dpkg-query >/dev/null 2>&1 && dpkg-query -W -f='${Status}' timesync 2>/dev/null | grep -q "install ok installed"; then
   echo "Removing Debian package timesync..."

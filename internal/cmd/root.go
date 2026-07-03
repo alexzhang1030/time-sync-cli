@@ -32,6 +32,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(applyCmd())
 	rootCmd.AddCommand(rollbackCmd())
+	rootCmd.AddCommand(uninstallCmd())
 	rootCmd.AddCommand(tuiCmd())
 }
 
@@ -257,5 +258,60 @@ func rollbackCmd() *cobra.Command {
 			fmt.Println("Rollback completed successfully.")
 			return nil
 		},
+	}
+}
+
+func uninstallCmd() *cobra.Command {
+	var dryRun, yes bool
+	cmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove timesync-managed NTP/PTP role configuration",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := apply.PlanUninstall()
+			if err != nil {
+				return err
+			}
+			fmt.Print(apply.FormatUninstallPlan(plan))
+			if dryRun {
+				fmt.Println("\n(dry-run: no changes applied)")
+				return nil
+			}
+			if !yes {
+				proceed, err := confirmUninstall()
+				if err != nil {
+					return err
+				}
+				if !proceed {
+					fmt.Println("\nAborted; no changes applied.")
+					return nil
+				}
+			}
+			if err := apply.Uninstall(); err != nil {
+				return err
+			}
+			fmt.Println("\nTimesync-managed NTP/PTP configuration removed successfully.")
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "render planned uninstall actions without applying")
+	cmd.Flags().BoolVar(&yes, "yes", false, "assume yes; remove timesync-managed NTP/PTP config without prompting")
+	return cmd
+}
+
+func confirmUninstall() (bool, error) {
+	if !stdinIsInteractive() {
+		return false, fmt.Errorf("refusing to remove timesync-managed config in a non-interactive session; re-run with --yes to confirm")
+	}
+	fmt.Print("Remove timesync-managed NTP/PTP configuration? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		return false, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true, nil
+	default:
+		return false, nil
 	}
 }

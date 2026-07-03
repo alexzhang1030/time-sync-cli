@@ -239,6 +239,12 @@ One-line uninstall:
 curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/uninstall.sh | bash
 ```
 
+One-line NTP/PTP role config cleanup:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/uninstall-config.sh | bash
+```
+
 Install a specific version:
 
 ```bash
@@ -279,6 +285,7 @@ timesync status                                          # sync health, role, NT
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run] [--yes]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run] [--yes]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run] [--yes]
+timesync uninstall [--dry-run] [--yes]                     # remove timesync-managed NTP/PTP role config
 timesync tui                                             # guided interactive setup
 timesync rollback                                        # restore files from last apply backup
 ```
@@ -302,6 +309,21 @@ overwriting it:
 ```bash
 # CI / scripted apply that may overwrite hand-written configs
 sudo timesync apply client --iface eth0 --source 192.168.1.1 --yes
+```
+
+### Remove current NTP/PTP role config
+
+```bash
+timesync uninstall --dry-run
+sudo timesync uninstall --yes
+```
+
+This removes timesync-managed NTP/PTP Master/Client configuration, including `/etc/timesync-cli`, timesync systemd drop-ins, and timesync-created `ptp4l` / `phc2sys` units. The `timesync` binary and runtime packages remain installed.
+
+One-line cleanup:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/uninstall-config.sh | bash
 ```
 
 ## Safety model

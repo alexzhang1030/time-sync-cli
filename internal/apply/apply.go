@@ -15,12 +15,14 @@ import (
 const (
 	DefaultConfigDir = "/etc/timesync-cli"
 	DefaultBackupDir = "/etc/timesync-cli/backups"
+	DefaultSystemdDir = "/etc/systemd/system"
 )
 
 // Applier writes planned changes and reloads systemd services.
 type Applier struct {
-	ConfigDir string
-	BackupDir string
+	ConfigDir  string
+	BackupDir  string
+	SystemdDir string
 }
 
 // State records the last applied role configuration.
@@ -57,8 +59,9 @@ func Apply(plan *model.Plan) error {
 // DefaultApplier returns an applier using system paths.
 func DefaultApplier() *Applier {
 	return &Applier{
-		ConfigDir: DefaultConfigDir,
-		BackupDir: DefaultBackupDir,
+		ConfigDir:  DefaultConfigDir,
+		BackupDir:  DefaultBackupDir,
+		SystemdDir: DefaultSystemdDir,
 	}
 }
 
