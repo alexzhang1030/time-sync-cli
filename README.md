@@ -150,7 +150,7 @@ There are three related clocks on a typical Linux device:
 So after a successful sync:
 
 - **NTP roles:** chrony keeps the system clock aligned and pushes corrections to the RTC via `rtcsync`.
-- **PTP client roles:** `phc2sys` disciplines the system clock from the PHC; with `-w`, large steps propagate to the RTC.
+- **PTP client roles:** `timesync` disables chrony, then `phc2sys` disciplines the system clock from the PHC; with `-w`, large steps propagate to the RTC.
 - **PTP master roles:** `phc2sys` disciplines the PHC from `CLOCK_REALTIME`, then `ptp4l` serves that hardware clock to clients.
 
 ### Verify RTC / sync state

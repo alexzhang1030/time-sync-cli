@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	DefaultConfigDir = "/etc/timesync-cli"
-	DefaultBackupDir = "/etc/timesync-cli/backups"
+	DefaultConfigDir  = "/etc/timesync-cli"
+	DefaultBackupDir  = "/etc/timesync-cli/backups"
 	DefaultSystemdDir = "/etc/systemd/system"
 )
 
@@ -33,6 +33,7 @@ type State struct {
 	AppliedAt string            `json:"applied_at"`
 	Backups   map[string]string `json:"backups,omitempty"`
 	Created   []string          `json:"created,omitempty"`
+	Disabled  []string          `json:"disabled,omitempty"`
 }
 
 // LoadState reads the last applied configuration from disk.
@@ -108,6 +109,15 @@ func (a *Applier) Apply(plan *model.Plan) error {
 		return fmt.Errorf("systemctl daemon-reload: %w", err)
 	}
 
+	for _, unit := range plan.DisableUnits {
+		if err := runSystemctl("stop", unit); err != nil {
+			return fmt.Errorf("systemctl stop %s: %w", unit, err)
+		}
+		if err := runSystemctl("disable", unit); err != nil {
+			return fmt.Errorf("systemctl disable %s: %w", unit, err)
+		}
+	}
+
 	for _, unit := range UnitsForPlan(plan) {
 		if err := runSystemctl("enable", unit); err != nil {
 			return fmt.Errorf("systemctl enable %s: %w", unit, err)
@@ -130,6 +140,7 @@ func (a *Applier) writeState(plan *model.Plan, backups map[string]string, create
 		AppliedAt: time.Now().UTC().Format(time.RFC3339),
 		Backups:   backups,
 		Created:   created,
+		Disabled:  plan.DisableUnits,
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {

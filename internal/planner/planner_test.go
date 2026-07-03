@@ -222,6 +222,16 @@ func TestPlanClient_PTP(t *testing.T) {
 	if ptp4lCount != 1 {
 		t.Errorf("expected exactly one ptp4l.conf change, got %d", ptp4lCount)
 	}
+	if len(plan.DisableUnits) != 1 || plan.DisableUnits[0] != "chrony" {
+		t.Fatalf("DisableUnits = %v, want [chrony]", plan.DisableUnits)
+	}
+	formatted := planner.FormatPlan(plan)
+	if !strings.Contains(formatted, "Systemd units to disable:") || !strings.Contains(formatted, "- chrony") {
+		t.Fatalf("formatted plan missing chrony disable action:\n%s", formatted)
+	}
+	if !strings.Contains(formatted, "phc2sys is the only system clock discipline source") {
+		t.Fatalf("formatted plan missing PTP client warning:\n%s", formatted)
+	}
 }
 
 func TestPlanClient_PTPSystemdUnitsAreEnableable(t *testing.T) {

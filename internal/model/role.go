@@ -31,9 +31,10 @@ type PlannedChange struct {
 
 // Plan is the output of dry-run planning.
 type Plan struct {
-	Role     Role            `json:"role" yaml:"role"`
-	Iface    string          `json:"iface" yaml:"iface"`
-	PTP      bool            `json:"ptp" yaml:"ptp"`
-	Changes  []PlannedChange `json:"changes" yaml:"changes"`
-	Warnings []string        `json:"warnings,omitempty" yaml:"warnings,omitempty"`
+	Role         Role            `json:"role" yaml:"role"`
+	Iface        string          `json:"iface" yaml:"iface"`
+	PTP          bool            `json:"ptp" yaml:"ptp"`
+	Changes      []PlannedChange `json:"changes" yaml:"changes"`
+	DisableUnits []string        `json:"disable_units,omitempty" yaml:"disable_units,omitempty"`
+	Warnings     []string        `json:"warnings,omitempty" yaml:"warnings,omitempty"`
 }

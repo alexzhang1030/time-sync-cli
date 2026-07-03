@@ -108,6 +108,8 @@ func planChangesMaster(plan *model.Plan, opts model.ApplyOptions) {
 func planChangesClient(plan *model.Plan, opts model.ApplyOptions) {
 	if opts.PTP {
 		plan.Changes = append(plan.Changes, ptpClientChanges(opts.Iface, opts.Source)...)
+		plan.DisableUnits = append(plan.DisableUnits, "chrony")
+		plan.Warnings = append(plan.Warnings, "PTP client mode disables chrony so phc2sys is the only system clock discipline source")
 	} else {
 		plan.Changes = append(plan.Changes,
 			model.PlannedChange{
@@ -352,6 +354,12 @@ func FormatPlan(plan *model.Plan) string {
 		b.WriteString("\nWarnings:\n")
 		for _, w := range plan.Warnings {
 			fmt.Fprintf(&b, "  - %s\n", w)
+		}
+	}
+	if len(plan.DisableUnits) > 0 {
+		b.WriteString("\nSystemd units to disable:\n")
+		for _, unit := range plan.DisableUnits {
+			fmt.Fprintf(&b, "  - %s\n", unit)
 		}
 	}
 	b.WriteString("\nPlanned changes:\n")

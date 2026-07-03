@@ -150,7 +150,7 @@ timesync tui
 同步成功后：
 
 - **NTP 角色：** chrony 校准系统时钟，并通过 `rtcsync` 将修正推送到 RTC。
-- **PTP Client 角色：** `phc2sys` 以 PHC 为参考驯服系统时钟；带 `-w` 时大步调整会传播到 RTC。
+- **PTP Client 角色：** `timesync` 会停用 chrony，然后 `phc2sys` 以 PHC 为参考驯服系统时钟；带 `-w` 时大步调整会传播到 RTC。
 - **PTP Master 角色：** `phc2sys` 以 `CLOCK_REALTIME` 为参考驯服 PHC，然后 `ptp4l` 把这个硬件时钟提供给客户端。
 
 ### 验证 RTC / 同步状态

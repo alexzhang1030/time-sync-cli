@@ -46,6 +46,11 @@ func (a *Applier) Rollback() error {
 		return fmt.Errorf("systemctl daemon-reload: %w", err)
 	}
 
+	for _, unit := range state.Disabled {
+		_ = runSystemctl("enable", unit)
+		_ = runSystemctl("restart", unit)
+	}
+
 	for _, unit := range unitsFromPaths(append(mapKeys(state.Backups), state.Created...)) {
 		_ = runSystemctl("try-restart", unit)
 	}
