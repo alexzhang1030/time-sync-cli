@@ -21,6 +21,8 @@ type Report struct {
 	Source         string        `json:"source" yaml:"source"`
 	Offset         string        `json:"offset" yaml:"offset"`
 	Healthy        bool          `json:"healthy" yaml:"healthy"`
+	NTPHealth      bool          `json:"ntp_health" yaml:"ntp_health"`
+	PTPHealth      string        `json:"ptp_health" yaml:"ptp_health"`
 }
 
 // ChronyStatus from chronyc tracking/sources.
@@ -60,7 +62,9 @@ func Collect() (*Report, error) {
 	r.PTP = collectPTP()
 	r.ConfiguredRole = configuredRole()
 	r.Role, r.Source, r.Offset = inferSyncState(r)
-	r.Healthy = r.Chrony.Active || r.PTP.PTP4LActive
+	r.NTPHealth = r.Chrony.Active
+	r.PTPHealth = inferPTPHealth(r.PTP)
+	r.Healthy = r.NTPHealth || r.PTPHealth == "true"
 	return r, nil
 }
 
@@ -192,10 +196,31 @@ func inferSyncState(r *Report) (role, source, offset string) {
 	return role, source, offset
 }
 
+func inferPTPHealth(s PTPStatus) string {
+	if !s.PTP4LActive && !s.PHC2SysActive {
+		return "false"
+	}
+	if !s.Available {
+		return "unknown"
+	}
+	switch strings.ToUpper(s.PortState) {
+	case "MASTER", "SLAVE":
+		return "true"
+	case "":
+		return "unknown"
+	default:
+		return "false"
+	}
+}
+
 // Summary returns human-readable status output.
 func (r *Report) Summary() string {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "Sync health: %v\n", r.Healthy)
+	fmt.Fprintf(&b, "NTP health: %v\n", r.NTPHealth)
+	if r.PTPHealth != "" {
+		fmt.Fprintf(&b, "PTP health: %s\n", r.PTPHealth)
+	}
+	fmt.Fprintf(&b, "Overall health: %v\n", r.Healthy)
 	if r.ConfiguredRole != "" {
 		fmt.Fprintf(&b, "Configured role: %s\n", r.ConfiguredRole)
 	}
