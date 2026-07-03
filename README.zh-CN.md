@@ -225,6 +225,18 @@ sudo mv timesync /usr/local/bin/
 
 带 tag 的 release 提供 `linux/amd64` 与 `linux/arm64` 原生包：
 
+Debian/Ubuntu 一键安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/install-deb.sh | bash
+```
+
+安装指定版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/install-deb.sh | bash -s -- v0.2.5
+```
+
 | 格式 | 示例产物 |
 |------|----------|
 | Debian/Ubuntu（`.deb`） | `timesync_<version>_amd64.deb` |

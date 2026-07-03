@@ -225,6 +225,18 @@ sudo mv timesync /usr/local/bin/
 
 Tagged releases include native packages for `linux/amd64` and `linux/arm64`:
 
+One-line Debian/Ubuntu install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/install-deb.sh | bash
+```
+
+Install a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/install-deb.sh | bash -s -- v0.2.5
+```
+
 | Format | Example artifact |
 |--------|------------------|
 | Debian/Ubuntu (`.deb`) | `timesync_<version>_amd64.deb` |
