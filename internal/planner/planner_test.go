@@ -52,15 +52,21 @@ func TestPlanAuto_WithPTP(t *testing.T) {
 	}
 	hasPTP4L, hasPHC2Sys := false, false
 	for _, c := range plan.Changes {
-		if strings.Contains(c.Path, "ptp4l.service.d") {
+		if c.Path == "/etc/systemd/system/ptp4l.service" {
 			hasPTP4L = true
+			if !strings.Contains(c.Content, "[Install]") {
+				t.Error("expected install section in ptp4l service")
+			}
 		}
-		if strings.Contains(c.Path, "phc2sys.service.d") {
+		if c.Path == "/etc/systemd/system/phc2sys.service" {
 			hasPHC2Sys = true
+			if !strings.Contains(c.Content, "Requires=ptp4l.service") {
+				t.Error("expected phc2sys service to require ptp4l")
+			}
 		}
 	}
 	if !hasPTP4L || !hasPHC2Sys {
-		t.Errorf("expected ptp4l and phc2sys drop-ins, ptp4l=%v phc2sys=%v", hasPTP4L, hasPHC2Sys)
+		t.Errorf("expected ptp4l and phc2sys service units, ptp4l=%v phc2sys=%v", hasPTP4L, hasPHC2Sys)
 	}
 }
 
@@ -148,6 +154,43 @@ func TestPlanClient_PTP(t *testing.T) {
 	}
 	if ptp4lCount != 1 {
 		t.Errorf("expected exactly one ptp4l.conf change, got %d", ptp4lCount)
+	}
+}
+
+func TestPlanClient_PTPSystemdUnitsAreEnableable(t *testing.T) {
+	plan, err := planner.Plan(model.ApplyOptions{
+		Role:   model.RoleClient,
+		Iface:  "eth0",
+		Source: "192.168.71.51",
+		PTP:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	required := map[string]string{
+		"/etc/systemd/system/ptp4l.service":   "ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf",
+		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s eth0 -w",
+	}
+	for path, execStart := range required {
+		found := false
+		for _, c := range plan.Changes {
+			if c.Path == path {
+				found = true
+				if !strings.Contains(c.Content, "[Unit]") {
+					t.Errorf("%s missing unit section", path)
+				}
+				if !strings.Contains(c.Content, execStart) {
+					t.Errorf("%s missing ExecStart", path)
+				}
+				if !strings.Contains(c.Content, "[Install]") {
+					t.Errorf("%s missing install section", path)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing %s", path)
+		}
 	}
 }
 

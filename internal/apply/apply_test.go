@@ -24,6 +24,19 @@ func TestUnitsForPlan_ChronyOnly(t *testing.T) {
 func TestUnitsForPlan_PTP(t *testing.T) {
 	plan := &model.Plan{
 		Changes: []model.PlannedChange{
+			{Path: "/etc/systemd/system/ptp4l.service"},
+			{Path: "/etc/systemd/system/phc2sys.service"},
+		},
+	}
+	units := apply.UnitsForPlan(plan)
+	if len(units) != 2 {
+		t.Fatalf("units = %v, want ptp4l and phc2sys", units)
+	}
+}
+
+func TestUnitsForPlan_PTPDropInCompatibility(t *testing.T) {
+	plan := &model.Plan{
+		Changes: []model.PlannedChange{
 			{Path: "/etc/systemd/system/ptp4l.service.d/timesync-cli.conf"},
 			{Path: "/etc/systemd/system/phc2sys.service.d/timesync-cli.conf"},
 		},

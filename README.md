@@ -165,7 +165,7 @@ timedatectl status        # system clock + RTC sync flag
 ```
 ┌─────────────┐     ┌──────────┐     ┌─────────────────────────────┐
 │   timesync  │────▶│  planner │────▶│ /etc/timesync-cli/*.conf    │
-│  CLI / TUI  │     │ (dry-run)│     │ systemd *.service.d drop-ins│
+│  CLI / TUI  │     │ (dry-run)│     │ systemd units and drop-ins  │
 └─────────────┘     └──────────┘     └─────────────────────────────┘
        │                                        │
        ▼                                        ▼
@@ -176,7 +176,7 @@ timedatectl status        # system clock + RTC sync flag
 ```
 
 1. **Detection (`doctor`)** — reads `/etc/os-release`, checks systemd, locates binaries, lists `/sys/class/net` interfaces, runs `ethtool -T` for PTP hardware timestamping.
-2. **Planning (`apply --dry-run`)** — renders role-specific chrony/ptp4l/phc2sys configs and systemd drop-ins under `/etc/timesync-cli/`. Does not touch vendor configs directly.
+2. **Planning (`apply --dry-run`)** — renders role-specific chrony/ptp4l/phc2sys configs, the chronyd drop-in, and PTP systemd units.
 3. **Apply (`apply` without `--dry-run`)** — backs up existing files, writes configs, saves `state.json`, runs `systemctl daemon-reload`, enables and restarts affected units.
 4. **Status** — read-only: `systemctl is-active`, `chronyc -c tracking`, configured role from `state.json`.
 
@@ -192,8 +192,8 @@ timedatectl status        # system clock + RTC sync flag
 
 /etc/systemd/system/
 ├── chronyd.service.d/timesync-cli.conf
-├── ptp4l.service.d/timesync-cli.conf
-└── phc2sys.service.d/timesync-cli.conf
+├── ptp4l.service
+└── phc2sys.service
 ```
 
 ## Requirements

@@ -146,15 +146,15 @@ func ptpClientChanges(iface, source string) []model.PlannedChange {
 		},
 		{
 			Kind:        "systemd",
-			Path:        "/etc/systemd/system/ptp4l.service.d/timesync-cli.conf",
-			Description: "systemd drop-in for ptp4l",
-			Content:     renderPTP4LDropIn(),
+			Path:        "/etc/systemd/system/ptp4l.service",
+			Description: "systemd unit for ptp4l",
+			Content:     renderPTP4LService(),
 		},
 		{
 			Kind:        "systemd",
-			Path:        "/etc/systemd/system/phc2sys.service.d/timesync-cli.conf",
-			Description: "systemd drop-in for phc2sys",
-			Content:     renderPHC2SysDropIn(iface),
+			Path:        "/etc/systemd/system/phc2sys.service",
+			Description: "systemd unit for phc2sys",
+			Content:     renderPHC2SysService(iface),
 		},
 	}
 }
@@ -175,15 +175,15 @@ func ptpMasterChanges(iface string) []model.PlannedChange {
 		},
 		{
 			Kind:        "systemd",
-			Path:        "/etc/systemd/system/ptp4l.service.d/timesync-cli.conf",
-			Description: "systemd drop-in for ptp4l grandmaster",
-			Content:     renderPTP4LDropIn(),
+			Path:        "/etc/systemd/system/ptp4l.service",
+			Description: "systemd unit for ptp4l grandmaster",
+			Content:     renderPTP4LService(),
 		},
 		{
 			Kind:        "systemd",
-			Path:        "/etc/systemd/system/phc2sys.service.d/timesync-cli.conf",
-			Description: "systemd drop-in for phc2sys",
-			Content:     renderPHC2SysDropIn(iface),
+			Path:        "/etc/systemd/system/phc2sys.service",
+			Description: "systemd unit for phc2sys",
+			Content:     renderPHC2SysService(iface),
 		},
 	}
 }
@@ -284,19 +284,35 @@ func renderPHC2Sys(iface string) string {
 `, iface)) + "\n"
 }
 
-func renderPHC2SysDropIn(iface string) string {
+func renderPHC2SysService(iface string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
+[Unit]
+Description=PHC to system clock sync configured by timesync-cli
+After=ptp4l.service
+Requires=ptp4l.service
+
 [Service]
-ExecStart=
 ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s %s -w
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
 `, iface)) + "\n"
 }
 
-func renderPTP4LDropIn() string {
+func renderPTP4LService() string {
 	return strings.TrimSpace(`
+[Unit]
+Description=Precision Time Protocol configured by timesync-cli
+After=network-online.target
+Wants=network-online.target
+
 [Service]
-ExecStart=
 ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
 `) + "\n"
 }
 

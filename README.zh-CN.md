@@ -165,7 +165,7 @@ timedatectl status        # 系统时钟 + RTC 同步标志
 ```
 ┌─────────────┐     ┌──────────┐     ┌─────────────────────────────┐
 │   timesync  │────▶│  planner │────▶│ /etc/timesync-cli/*.conf    │
-│  CLI / TUI  │     │ (dry-run)│     │ systemd *.service.d drop-ins│
+│  CLI / TUI  │     │ (dry-run)│     │ systemd units and drop-ins  │
 └─────────────┘     └──────────┘     └─────────────────────────────┘
        │                                        │
        ▼                                        ▼
@@ -176,7 +176,7 @@ timedatectl status        # 系统时钟 + RTC 同步标志
 ```
 
 1. **检测（`doctor`）** — 读取 `/etc/os-release`，检查 systemd，定位二进制，列出 `/sys/class/net` 网卡，对每块网卡执行 `ethtool -T` 检测 PTP 硬件时间戳。
-2. **规划（`apply --dry-run`）** — 按角色渲染 chrony/ptp4l/phc2sys 配置与 systemd drop-in，写入 `/etc/timesync-cli/`，不直接修改发行版自带配置。
+2. **规划（`apply --dry-run`）** — 按角色渲染 chrony/ptp4l/phc2sys 配置、chronyd drop-in 和 PTP systemd unit。
 3. **应用（`apply` 无 `--dry-run`）** — 备份已有文件，写入配置，保存 `state.json`，执行 `systemctl daemon-reload`，enable 并 restart 相关 unit。
 4. **状态（`status`）** — 只读：`systemctl is-active`、`chronyc -c tracking`、从 `state.json` 读取已配置角色。
 
@@ -192,8 +192,8 @@ timedatectl status        # 系统时钟 + RTC 同步标志
 
 /etc/systemd/system/
 ├── chronyd.service.d/timesync-cli.conf
-├── ptp4l.service.d/timesync-cli.conf
-└── phc2sys.service.d/timesync-cli.conf
+├── ptp4l.service
+└── phc2sys.service
 ```
 
 ## 依赖

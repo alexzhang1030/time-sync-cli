@@ -184,8 +184,12 @@ func unitFromChangePath(path string) string {
 	switch {
 	case strings.Contains(path, "chronyd.service.d"):
 		return "chronyd"
+	case filepath.Base(path) == "ptp4l.service":
+		return "ptp4l"
 	case strings.Contains(path, "ptp4l.service.d"):
 		return "ptp4l"
+	case filepath.Base(path) == "phc2sys.service":
+		return "phc2sys"
 	case strings.Contains(path, "phc2sys.service.d"):
 		return "phc2sys"
 	default:
