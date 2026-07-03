@@ -107,7 +107,7 @@ func applyAutoCmd() *cobra.Command {
 }
 
 func applyMasterCmd() *cobra.Command {
-	var iface, ntpServeCIDR string
+	var iface, ntpServeCIDR, ntpPool string
 	var ptp, dryRun, yes bool
 
 	cmd := &cobra.Command{
@@ -117,6 +117,7 @@ func applyMasterCmd() *cobra.Command {
 			return runApply(model.ApplyOptions{
 				Role:         model.RoleMaster,
 				Iface:        iface,
+				NTPPool:      ntpPool,
 				NTPServeCIDR: ntpServeCIDR,
 				PTP:          ptp,
 				DryRun:       dryRun,
@@ -125,6 +126,7 @@ func applyMasterCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&iface, "iface", "", "network interface (required)")
+	cmd.Flags().StringVar(&ntpPool, "ntp-pool", "pool.ntp.org", "upstream NTP pool server")
 	cmd.Flags().StringVar(&ntpServeCIDR, "ntp-serve-cidr", "", "CIDR to allow NTP serving")
 	cmd.Flags().BoolVar(&ptp, "ptp", false, "enable PTP grandmaster mode")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "render planned changes without applying")

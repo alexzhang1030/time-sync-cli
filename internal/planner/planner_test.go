@@ -80,6 +80,7 @@ func TestPlanMaster_NTP(t *testing.T) {
 	plan, err := planner.Plan(model.ApplyOptions{
 		Role:         model.RoleMaster,
 		Iface:        "eth0",
+		NTPPool:      "cn.pool.ntp.org",
 		NTPServeCIDR: "10.0.0.0/8",
 	})
 	if err != nil {
@@ -87,6 +88,12 @@ func TestPlanMaster_NTP(t *testing.T) {
 	}
 	for _, c := range plan.Changes {
 		if strings.Contains(c.Path, "chrony.conf") {
+			if !strings.Contains(c.Content, "pool cn.pool.ntp.org iburst") {
+				t.Error("master chrony config missing upstream pool")
+			}
+			if !strings.Contains(c.Content, "makestep 1.0 3") {
+				t.Error("master chrony config missing makestep")
+			}
 			if !strings.Contains(c.Content, "allow 10.0.0.0/8") {
 				t.Error("master chrony config missing allow directive")
 			}
@@ -143,8 +150,8 @@ func TestPlanMaster_PTPPhc2sysSyncsPHCFromSystemClock(t *testing.T) {
 	}
 
 	required := map[string]string{
-		"/etc/timesync-cli/phc2sys.conf":      "-s CLOCK_REALTIME -c eth2 -w",
-		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c eth2 -w",
+		"/etc/timesync-cli/phc2sys.conf":      "-s CLOCK_REALTIME -c eth2 -w -S 1.0",
+		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c eth2 -w -S 1.0",
 	}
 	for path, want := range required {
 		found := false
@@ -217,6 +224,9 @@ func TestPlanClient_PTP(t *testing.T) {
 			if strings.Contains(c.Content, "\naddress") {
 				t.Error("unexpected legacy address line in unicast master table")
 			}
+			if strings.Contains(c.Content, "clock_servo") {
+				t.Error("PTP client config should use the linuxptp default servo")
+			}
 		}
 	}
 	if ptp4lCount != 1 {
@@ -247,7 +257,7 @@ func TestPlanClient_PTPSystemdUnitsAreEnableable(t *testing.T) {
 
 	required := map[string]string{
 		"/etc/systemd/system/ptp4l.service":   "ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf",
-		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s eth0 -w",
+		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s eth0 -w -S 1.0",
 	}
 	for path, execStart := range required {
 		found := false

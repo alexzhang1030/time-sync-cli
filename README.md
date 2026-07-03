@@ -82,13 +82,13 @@ sudo timesync apply auto --iface eth0 --ptp   # also enable PTP slave when HW su
 
 ```bash
 # Preview
-timesync apply master --dry-run --iface eth0 --ntp-serve-cidr 192.168.0.0/24
+timesync apply master --dry-run --iface eth0 --ntp-pool cn.pool.ntp.org --ntp-serve-cidr 192.168.0.0/24
 
 # Apply (requires root)
-sudo timesync apply master --iface eth0 --ntp-serve-cidr 192.168.0.0/24
+sudo timesync apply master --iface eth0 --ntp-pool cn.pool.ntp.org --ntp-serve-cidr 192.168.0.0/24
 ```
 
-This generates chrony config with `local stratum 8` and `allow <cidr>`, installs a systemd drop-in, and restarts `chrony`.
+This generates chrony config with an upstream NTP pool, `local stratum 8`, and `allow <cidr>`, installs a systemd drop-in, and restarts `chrony`.
 
 ### Enable PTP grandmaster (master + PTP)
 
@@ -144,13 +144,13 @@ There are three related clocks on a typical Linux device:
 | Path | Mechanism | Direction |
 |------|-----------|-------------|
 | NTP (chrony) | `rtcsync` in generated chrony config | System clock → RTC (periodic write-back) |
-| PTP client (linuxptp) | `phc2sys -s <iface> -w` | PHC -> system clock; `-w` also writes system time to RTC when stepping |
-| PTP master (linuxptp) | `phc2sys -s CLOCK_REALTIME -c <iface> -w` | System clock -> PHC |
+| PTP client (linuxptp) | `phc2sys -s <iface> -w -S 1.0` | PHC -> system clock; `-S 1.0` steps large initial offsets |
+| PTP master (linuxptp) | `phc2sys -s CLOCK_REALTIME -c <iface> -w -S 1.0` | System clock -> PHC; `-S 1.0` steps large initial offsets |
 
 So after a successful sync:
 
 - **NTP roles:** chrony keeps the system clock aligned and pushes corrections to the RTC via `rtcsync`.
-- **PTP client roles:** `timesync` disables chrony, then `phc2sys` disciplines the system clock from the PHC; with `-w`, large steps propagate to the RTC.
+- **PTP client roles:** `timesync` disables chrony, then `phc2sys` disciplines the system clock from the PHC and steps offsets larger than 1 second.
 - **PTP master roles:** `phc2sys` disciplines the PHC from `CLOCK_REALTIME`, then `ptp4l` serves that hardware clock to clients.
 
 ### Verify RTC / sync state

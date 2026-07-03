@@ -101,6 +101,10 @@ func (a *Applier) Apply(plan *model.Plan) error {
 		}
 	}
 
+	if err := a.removeLegacyPTPDropIns(plan); err != nil {
+		return err
+	}
+
 	if err := a.writeState(plan, backups, created); err != nil {
 		return err
 	}
@@ -127,6 +131,28 @@ func (a *Applier) Apply(plan *model.Plan) error {
 		}
 	}
 
+	return nil
+}
+
+func (a *Applier) removeLegacyPTPDropIns(plan *model.Plan) error {
+	needsCleanup := false
+	for _, change := range plan.Changes {
+		base := filepath.Base(change.Path)
+		if base == "ptp4l.service" || base == "phc2sys.service" {
+			needsCleanup = true
+			break
+		}
+	}
+	if !needsCleanup {
+		return nil
+	}
+
+	for _, unit := range []string{"ptp4l.service", "phc2sys.service"} {
+		path := filepath.Join(a.SystemdDir, unit+".d", "timesync-cli.conf")
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove legacy drop-in %s: %w", path, err)
+		}
+	}
 	return nil
 }
 
