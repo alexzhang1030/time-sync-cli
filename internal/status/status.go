@@ -61,10 +61,10 @@ func Collect() (*Report, error) {
 	r.Chrony = collectChrony()
 	r.PTP = collectPTP()
 	r.ConfiguredRole = configuredRole()
-	r.Role, r.Source, r.Offset = inferSyncState(r)
 	r.NTPHealth = r.Chrony.Active
 	r.PTPHealth = inferPTPHealth(r.PTP)
 	r.Healthy = r.NTPHealth || r.PTPHealth == "true"
+	r.Role, r.Source, r.Offset = inferSyncState(r)
 	return r, nil
 }
 
@@ -169,7 +169,12 @@ func configuredRole() string {
 }
 
 func inferSyncState(r *Report) (role, source, offset string) {
-	if r.PTP.PTP4LActive {
+	if r.Chrony.Active {
+		role = "ntp"
+		source = r.Chrony.Source
+		offset = withUnit(r.Chrony.Offset, "s")
+	}
+	if r.PTPHealth == "true" {
 		role = "ptp"
 		switch {
 		case r.PTP.PortState != "":
@@ -184,11 +189,6 @@ func inferSyncState(r *Report) (role, source, offset string) {
 			OffsetFromMaster: r.PTP.OffsetFromMaster,
 		}
 		offset = metrics.PTPOffset()
-	}
-	if r.Chrony.Active {
-		role = "ntp"
-		source = r.Chrony.Source
-		offset = r.Chrony.Offset
 	}
 	if role == "" {
 		role = "unknown"
@@ -211,6 +211,17 @@ func inferPTPHealth(s PTPStatus) string {
 	default:
 		return "false"
 	}
+}
+
+func withUnit(value, unit string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.Contains(value, " ") {
+		return value
+	}
+	return value + " " + unit
 }
 
 // Summary returns human-readable status output.

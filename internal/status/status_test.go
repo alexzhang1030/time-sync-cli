@@ -132,7 +132,7 @@ func TestReportSummary_SplitsNTPAndUnknownPTPHealth(t *testing.T) {
 		PTPHealth: "unknown",
 		Role:      "ntp",
 		Source:    "3",
-		Offset:    "-1.462872982",
+		Offset:    "-1.462872982 s",
 		Chrony: status.ChronyStatus{
 			Active: true,
 		},
@@ -148,7 +148,42 @@ func TestReportSummary_SplitsNTPAndUnknownPTPHealth(t *testing.T) {
 		"PTP health: unknown",
 		"Overall health: true",
 		"Active role: ntp",
+		"Offset: -1.462872982 s",
 		"(unable to query ptp4l via pmc)",
+	} {
+		if !contains(out, want) {
+			t.Errorf("Summary missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestReportSummary_PTPPreferredWhenBothHealthy(t *testing.T) {
+	r := &status.Report{
+		Healthy:   true,
+		NTPHealth: true,
+		PTPHealth: "true",
+		Role:      "ptp",
+		Source:    "SLAVE",
+		Offset:    "42 ns",
+		Chrony: status.ChronyStatus{
+			Active: true,
+			Offset: "-1.462872982",
+		},
+		PTP: status.PTPStatus{
+			PTP4LActive:   true,
+			PHC2SysActive: true,
+			Available:     true,
+			PortState:     "SLAVE",
+			MasterOffset:  "42",
+		},
+	}
+	out := r.Summary()
+	for _, want := range []string{
+		"NTP health: true",
+		"PTP health: true",
+		"Active role: ptp",
+		"Source: SLAVE",
+		"Offset: 42 ns",
 	} {
 		if !contains(out, want) {
 			t.Errorf("Summary missing %q:\n%s", want, out)
