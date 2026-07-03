@@ -233,6 +233,12 @@ Debian/Ubuntu 一键安装：
 curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/install-deb.sh | bash
 ```
 
+一键卸载：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/uninstall.sh | bash
+```
+
 安装指定版本：
 
 ```bash
@@ -255,6 +261,8 @@ sudo dnf install ./timesync-<version>-1.x86_64.rpm
 ```
 
 包将二进制安装到 `/usr/bin/timesync`，并声明运行时依赖 `chrony`、`ethtool`（推荐 `linuxptp` 用于 PTP 角色）。
+
+卸载脚本会停止 timesync 管理的 PTP 服务，删除 timesync systemd 文件和 `/etc/timesync-cli`，再卸载 `timesync` 包。`chrony`、`linuxptp`、`ethtool` 等运行时依赖包会保留。
 
 ### 从源码构建
 

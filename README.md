@@ -233,6 +233,12 @@ One-line Debian/Ubuntu install:
 curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/install-deb.sh | bash
 ```
 
+One-line uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexzhang1030/time-sync-cli/main/scripts/uninstall.sh | bash
+```
+
 Install a specific version:
 
 ```bash
@@ -255,6 +261,8 @@ sudo dnf install ./timesync-<version>-1.x86_64.rpm
 ```
 
 Packages install `/usr/bin/timesync` and declare runtime dependencies on `chrony` and `ethtool` (recommends `linuxptp` for PTP roles).
+
+The uninstall script stops timesync-managed PTP services, removes timesync systemd files and `/etc/timesync-cli`, then removes the `timesync` package. Runtime dependency packages such as `chrony`, `linuxptp`, and `ethtool` are left installed.
 
 ### Build from source
 
