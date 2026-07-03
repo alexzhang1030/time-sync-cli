@@ -1,6 +1,10 @@
 package status
 
-import "strings"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // ParsePMCFields extracts key/value pairs from pmc management output.
 // Lines look like "        portState               SLAVE".
@@ -50,10 +54,22 @@ func ParsePTPMetrics(portDataSet, timeStatusNP, currentDataSet string) PTPMetric
 // PTPOffset returns the best available offset string with units, or empty.
 func (m PTPMetrics) PTPOffset() string {
 	if m.MasterOffset != "" {
-		return m.MasterOffset + " ns"
+		return formatPTPNanoseconds(m.MasterOffset)
 	}
 	if m.OffsetFromMaster != "" {
-		return m.OffsetFromMaster + " ns"
+		return formatPTPNanoseconds(m.OffsetFromMaster)
 	}
 	return ""
+}
+
+func formatPTPNanoseconds(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	ns, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return value + " ns"
+	}
+	return fmt.Sprintf("%.6f ms", ns/1_000_000)
 }

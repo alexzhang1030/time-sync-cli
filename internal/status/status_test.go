@@ -61,15 +61,15 @@ stepsRemoved            0`
 	if m.GMIdentity != "aabbcc.fffe.112233" {
 		t.Errorf("GMIdentity = %q", m.GMIdentity)
 	}
-	if m.PTPOffset() != "42 ns" {
-		t.Errorf("PTPOffset() = %q, want 42 ns", m.PTPOffset())
+	if m.PTPOffset() != "0.000042 ms" {
+		t.Errorf("PTPOffset() = %q, want 0.000042 ms", m.PTPOffset())
 	}
 }
 
 func TestParsePTPMetrics_FallbackOffset(t *testing.T) {
 	m := status.ParsePTPMetrics("", "", "offsetFromMaster        -15.0")
-	if m.PTPOffset() != "-15.0 ns" {
-		t.Errorf("PTPOffset() = %q, want -15.0 ns", m.PTPOffset())
+	if m.PTPOffset() != "-0.000015 ms" {
+		t.Errorf("PTPOffset() = %q, want -0.000015 ms", m.PTPOffset())
 	}
 }
 
@@ -96,7 +96,7 @@ func TestReportSummary_PTPDetails(t *testing.T) {
 		PTPHealth: "true",
 		Role:      "ptp",
 		Source:    "SLAVE",
-		Offset:    "42 ns",
+		Offset:    "0.000042 ms",
 		PTP: status.PTPStatus{
 			PTP4LActive:   true,
 			PHC2SysActive: true,
@@ -114,8 +114,8 @@ func TestReportSummary_PTPDetails(t *testing.T) {
 		"PTP health: true",
 		"Overall health: true",
 		"port state: SLAVE",
-		"master offset: 42 ns",
-		"path delay: 2500.0 ns",
+		"master offset: 0.000042 ms",
+		"path delay: 0.002500 ms",
 		"steps removed: 1",
 		"grandmaster: aabbcc.fffe.112233",
 	} {
@@ -164,7 +164,7 @@ func TestReportSummary_PTPPreferredWhenBothHealthy(t *testing.T) {
 		PTPHealth: "true",
 		Role:      "ptp",
 		Source:    "SLAVE",
-		Offset:    "42 ns",
+		Offset:    "0.000042 ms",
 		Chrony: status.ChronyStatus{
 			Active: true,
 			Offset: "-1.462872982",
@@ -183,9 +183,9 @@ func TestReportSummary_PTPPreferredWhenBothHealthy(t *testing.T) {
 		"PTP health: true",
 		"Active role: ptp",
 		"Source: SLAVE",
-		"Offset: 42 ns",
+		"Offset: 0.000042 ms",
 		"ntp offset: -1.462872982 s",
-		"ptp offset: 42 ns",
+		"ptp offset: 0.000042 ms",
 	} {
 		if !contains(out, want) {
 			t.Errorf("Summary missing %q:\n%s", want, out)
@@ -201,7 +201,7 @@ func TestReportSummary_MasterShowsPTPAndNTPOffsets(t *testing.T) {
 		ConfiguredRole: "master",
 		Role:           "ptp",
 		Source:         "MASTER",
-		Offset:         "15 ns",
+		Offset:         "0.000015 ms",
 		Chrony: status.ChronyStatus{
 			Active: true,
 			Offset: "0.000091882",
@@ -218,10 +218,10 @@ func TestReportSummary_MasterShowsPTPAndNTPOffsets(t *testing.T) {
 	for _, want := range []string{
 		"Configured role: master",
 		"Active role: ptp",
-		"Offset: 15 ns",
+		"Offset: 0.000015 ms",
 		"ntp offset: 0.000091882 s",
 		"port state: MASTER",
-		"ptp offset: 15 ns",
+		"ptp offset: 0.000015 ms",
 	} {
 		if !contains(out, want) {
 			t.Errorf("Summary missing %q:\n%s", want, out)

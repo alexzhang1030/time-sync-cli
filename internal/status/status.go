@@ -331,12 +331,12 @@ func (r *Report) Summary() string {
 			fmt.Fprintf(&b, "  ptp offset: %s\n", ptpOffset)
 		}
 		if r.PTP.MasterOffset != "" {
-			fmt.Fprintf(&b, "  master offset: %s ns\n", r.PTP.MasterOffset)
+			fmt.Fprintf(&b, "  master offset: %s\n", formatPTPNanoseconds(r.PTP.MasterOffset))
 		} else if r.PTP.OffsetFromMaster != "" {
-			fmt.Fprintf(&b, "  offset from master: %s ns\n", r.PTP.OffsetFromMaster)
+			fmt.Fprintf(&b, "  offset from master: %s\n", formatPTPNanoseconds(r.PTP.OffsetFromMaster))
 		}
 		if r.PTP.PathDelay != "" {
-			fmt.Fprintf(&b, "  path delay: %s ns\n", r.PTP.PathDelay)
+			fmt.Fprintf(&b, "  path delay: %s\n", formatPTPNanoseconds(r.PTP.PathDelay))
 		}
 		if r.PTP.StepsRemoved != "" {
 			fmt.Fprintf(&b, "  steps removed: %s\n", r.PTP.StepsRemoved)

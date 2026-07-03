@@ -48,7 +48,7 @@ func TestInferSyncStatePrefersHealthyPTP(t *testing.T) {
 	if source != "SLAVE" {
 		t.Fatalf("source = %q, want SLAVE", source)
 	}
-	if offset != "42 ns" {
+	if offset != "0.000042 ms" {
 		t.Fatalf("offset = %q, want PTP offset", offset)
 	}
 }
