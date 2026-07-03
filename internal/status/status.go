@@ -189,7 +189,7 @@ func pmcQueryArgsWithServer(dataSet, serverSocket string) ([]string, string) {
 	if serverSocket != "" {
 		args = append(args, "-s", serverSocket)
 	}
-	args = append(args, "-i", clientSocket, "-b", "0", "GET", dataSet)
+	args = append(args, "-i", clientSocket, "-b", "0", "GET "+dataSet)
 	return args, clientSocket
 }
 

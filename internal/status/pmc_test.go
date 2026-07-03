@@ -15,7 +15,7 @@ func TestPMCQueryArgsUsesWritableClientSocket(t *testing.T) {
 		t.Fatalf("socket = %q, want .sock suffix", socket)
 	}
 
-	want := []string{"-u", "-i", socket, "-b", "0", "GET", "PORT_DATA_SET"}
+	want := []string{"-u", "-i", socket, "-b", "0", "GET PORT_DATA_SET"}
 	if len(args) != len(want) {
 		t.Fatalf("args = %v, want %v", args, want)
 	}
@@ -28,7 +28,7 @@ func TestPMCQueryArgsUsesWritableClientSocket(t *testing.T) {
 
 func TestPMCQueryArgsWithServerSocket(t *testing.T) {
 	args, socket := pmcQueryArgsWithServer("PORT_DATA_SET", "/var/run/ptp4l")
-	want := []string{"-u", "-s", "/var/run/ptp4l", "-i", socket, "-b", "0", "GET", "PORT_DATA_SET"}
+	want := []string{"-u", "-s", "/var/run/ptp4l", "-i", socket, "-b", "0", "GET PORT_DATA_SET"}
 	if len(args) != len(want) {
 		t.Fatalf("args = %v, want %v", args, want)
 	}
