@@ -88,7 +88,7 @@ timesync apply master --dry-run --iface eth0 --ntp-serve-cidr 192.168.0.0/24
 sudo timesync apply master --iface eth0 --ntp-serve-cidr 192.168.0.0/24
 ```
 
-会生成含 `local stratum 8` 与 `allow <cidr>` 的 chrony 配置，安装 systemd drop-in，并重启 `chronyd`。
+会生成含 `local stratum 8` 与 `allow <cidr>` 的 chrony 配置，安装 systemd drop-in，并重启 `chrony`。
 
 ### 开启 PTP Grandmaster（Master + PTP）
 
@@ -170,13 +170,13 @@ timedatectl status        # 系统时钟 + RTC 同步标志
        │                                        │
        ▼                                        ▼
 ┌─────────────┐                        ┌────────────────┐
-│   doctor    │                        │ chronyd        │  NTP
+│   doctor    │                        │ chrony         │  NTP
 │   status    │                        │ ptp4l + phc2sys│  PTP
 └─────────────┘                        └────────────────┘
 ```
 
 1. **检测（`doctor`）** — 读取 `/etc/os-release`，检查 systemd，定位二进制，列出 `/sys/class/net` 网卡，对每块网卡执行 `ethtool -T` 检测 PTP 硬件时间戳。
-2. **规划（`apply --dry-run`）** — 按角色渲染 chrony/ptp4l/phc2sys 配置、chronyd drop-in 和 PTP systemd unit。
+2. **规划（`apply --dry-run`）** — 按角色渲染 chrony/ptp4l/phc2sys 配置、chrony drop-in 和 PTP systemd unit。
 3. **应用（`apply` 无 `--dry-run`）** — 备份已有文件，写入配置，保存 `state.json`，执行 `systemctl daemon-reload`，enable 并 restart 相关 unit。
 4. **状态（`status`）** — 只读：`systemctl is-active`、`chronyc -c tracking`、从 `state.json` 读取已配置角色。
 
@@ -191,7 +191,7 @@ timedatectl status        # 系统时钟 + RTC 同步标志
 └── backups/             # 覆盖前的时间戳备份
 
 /etc/systemd/system/
-├── chronyd.service.d/timesync-cli.conf
+├── chrony.service.d/timesync-cli.conf
 ├── ptp4l.service
 └── phc2sys.service
 ```

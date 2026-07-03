@@ -182,8 +182,10 @@ func UnitsForPlan(plan *model.Plan) []string {
 
 func unitFromChangePath(path string) string {
 	switch {
+	case strings.Contains(path, "chrony.service.d"):
+		return "chrony"
 	case strings.Contains(path, "chronyd.service.d"):
-		return "chronyd"
+		return "chrony"
 	case filepath.Base(path) == "ptp4l.service":
 		return "ptp4l"
 	case strings.Contains(path, "ptp4l.service.d"):

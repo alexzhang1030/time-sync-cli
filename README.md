@@ -88,7 +88,7 @@ timesync apply master --dry-run --iface eth0 --ntp-serve-cidr 192.168.0.0/24
 sudo timesync apply master --iface eth0 --ntp-serve-cidr 192.168.0.0/24
 ```
 
-This generates chrony config with `local stratum 8` and `allow <cidr>`, installs a systemd drop-in, and restarts `chronyd`.
+This generates chrony config with `local stratum 8` and `allow <cidr>`, installs a systemd drop-in, and restarts `chrony`.
 
 ### Enable PTP grandmaster (master + PTP)
 
@@ -170,13 +170,13 @@ timedatectl status        # system clock + RTC sync flag
        │                                        │
        ▼                                        ▼
 ┌─────────────┐                        ┌────────────────┐
-│   doctor    │                        │ chronyd        │  NTP
+│   doctor    │                        │ chrony         │  NTP
 │   status    │                        │ ptp4l + phc2sys│  PTP
 └─────────────┘                        └────────────────┘
 ```
 
 1. **Detection (`doctor`)** — reads `/etc/os-release`, checks systemd, locates binaries, lists `/sys/class/net` interfaces, runs `ethtool -T` for PTP hardware timestamping.
-2. **Planning (`apply --dry-run`)** — renders role-specific chrony/ptp4l/phc2sys configs, the chronyd drop-in, and PTP systemd units.
+2. **Planning (`apply --dry-run`)** — renders role-specific chrony/ptp4l/phc2sys configs, the chrony drop-in, and PTP systemd units.
 3. **Apply (`apply` without `--dry-run`)** — backs up existing files, writes configs, saves `state.json`, runs `systemctl daemon-reload`, enables and restarts affected units.
 4. **Status** — read-only: `systemctl is-active`, `chronyc -c tracking`, configured role from `state.json`.
 
@@ -191,7 +191,7 @@ timedatectl status        # system clock + RTC sync flag
 └── backups/             # timestamped backups before overwrite
 
 /etc/systemd/system/
-├── chronyd.service.d/timesync-cli.conf
+├── chrony.service.d/timesync-cli.conf
 ├── ptp4l.service
 └── phc2sys.service
 ```

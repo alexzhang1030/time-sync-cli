@@ -12,12 +12,24 @@ func TestUnitsForPlan_ChronyOnly(t *testing.T) {
 	plan := &model.Plan{
 		Changes: []model.PlannedChange{
 			{Path: "/etc/timesync-cli/chrony.conf"},
+			{Path: "/etc/systemd/system/chrony.service.d/timesync-cli.conf"},
+		},
+	}
+	units := apply.UnitsForPlan(plan)
+	if len(units) != 1 || units[0] != "chrony" {
+		t.Fatalf("units = %v, want [chrony]", units)
+	}
+}
+
+func TestUnitsForPlan_ChronydDropInCompatibility(t *testing.T) {
+	plan := &model.Plan{
+		Changes: []model.PlannedChange{
 			{Path: "/etc/systemd/system/chronyd.service.d/timesync-cli.conf"},
 		},
 	}
 	units := apply.UnitsForPlan(plan)
-	if len(units) != 1 || units[0] != "chronyd" {
-		t.Fatalf("units = %v, want [chronyd]", units)
+	if len(units) != 1 || units[0] != "chrony" {
+		t.Fatalf("units = %v, want [chrony]", units)
 	}
 }
 

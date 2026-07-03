@@ -66,10 +66,22 @@ func Collect() (*Report, error) {
 
 func collectSystemd() SystemdStatus {
 	return SystemdStatus{
-		Chronyd: unitActive("chronyd"),
+		Chronyd: unitActiveAny("chrony", "chronyd"),
 		PTP4L:   unitActive("ptp4l"),
 		PHC2Sys: unitActive("phc2sys"),
 	}
+}
+
+func unitActiveAny(units ...string) string {
+	last := "inactive"
+	for _, unit := range units {
+		state := unitActive(unit)
+		if state == "active" {
+			return state
+		}
+		last = state
+	}
+	return last
 }
 
 func unitActive(unit string) string {
@@ -81,7 +93,7 @@ func unitActive(unit string) string {
 }
 
 func collectChrony() ChronyStatus {
-	s := ChronyStatus{Active: unitActive("chronyd") == "active"}
+	s := ChronyStatus{Active: unitActiveAny("chrony", "chronyd") == "active"}
 	out, err := exec.Command("chronyc", "-c", "tracking").Output()
 	if err != nil {
 		return s

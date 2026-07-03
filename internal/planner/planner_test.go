@@ -36,6 +36,12 @@ func TestPlanAuto_DryRun(t *testing.T) {
 	if !found {
 		t.Error("missing chrony config change")
 	}
+	for _, c := range plan.Changes {
+		if strings.Contains(c.Path, "chrony.service.d") {
+			return
+		}
+	}
+	t.Error("missing chrony.service drop-in")
 }
 
 func TestPlanAuto_WithPTP(t *testing.T) {
@@ -84,10 +90,23 @@ func TestPlanMaster_NTP(t *testing.T) {
 			if !strings.Contains(c.Content, "allow 10.0.0.0/8") {
 				t.Error("master chrony config missing allow directive")
 			}
-			return
 		}
 	}
-	t.Error("missing chrony master config")
+	hasChronyConfig, hasChronyDropIn := false, false
+	for _, c := range plan.Changes {
+		if c.Path == "/etc/timesync-cli/chrony.conf" {
+			hasChronyConfig = true
+		}
+		if c.Path == "/etc/systemd/system/chrony.service.d/timesync-cli.conf" {
+			hasChronyDropIn = true
+		}
+	}
+	if !hasChronyConfig {
+		t.Error("missing chrony master config")
+	}
+	if !hasChronyDropIn {
+		t.Error("missing chrony.service drop-in")
+	}
 }
 
 func TestPlanMaster_PTP(t *testing.T) {

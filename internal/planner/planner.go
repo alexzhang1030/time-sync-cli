@@ -65,7 +65,7 @@ func planChangesAuto(plan *model.Plan, opts model.ApplyOptions) {
 		},
 		model.PlannedChange{
 			Kind:        "systemd",
-			Path:        "/etc/systemd/system/chronyd.service.d/timesync-cli.conf",
+			Path:        "/etc/systemd/system/chrony.service.d/timesync-cli.conf",
 			Description: "systemd drop-in to use timesync-cli chrony config",
 			Content:     renderChronyDropIn(),
 		},
@@ -94,7 +94,7 @@ func planChangesMaster(plan *model.Plan, opts model.ApplyOptions) {
 		},
 		model.PlannedChange{
 			Kind:        "systemd",
-			Path:        "/etc/systemd/system/chronyd.service.d/timesync-cli.conf",
+			Path:        "/etc/systemd/system/chrony.service.d/timesync-cli.conf",
 			Description: "systemd drop-in for chrony master",
 			Content:     renderChronyDropIn(),
 		},
@@ -118,7 +118,7 @@ func planChangesClient(plan *model.Plan, opts model.ApplyOptions) {
 			},
 			model.PlannedChange{
 				Kind:        "systemd",
-				Path:        "/etc/systemd/system/chronyd.service.d/timesync-cli.conf",
+				Path:        "/etc/systemd/system/chrony.service.d/timesync-cli.conf",
 				Description: "systemd drop-in for chrony client",
 				Content:     renderChronyDropIn(),
 			},
