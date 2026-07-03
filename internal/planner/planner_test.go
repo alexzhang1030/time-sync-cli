@@ -122,10 +122,46 @@ func TestPlanMaster_PTP(t *testing.T) {
 	for _, c := range plan.Changes {
 		if strings.Contains(c.Content, "clockClass") {
 			found = true
+			if !strings.Contains(c.Content, "unicast_listen") {
+				t.Error("expected PTP master to listen for unicast clients")
+			}
 		}
 	}
 	if !found {
 		t.Error("expected PTP grandmaster config")
+	}
+}
+
+func TestPlanMaster_PTPPhc2sysSyncsPHCFromSystemClock(t *testing.T) {
+	plan, err := planner.Plan(model.ApplyOptions{
+		Role:  model.RoleMaster,
+		Iface: "eth2",
+		PTP:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	required := map[string]string{
+		"/etc/timesync-cli/phc2sys.conf":      "-s CLOCK_REALTIME -c eth2 -w",
+		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c eth2 -w",
+	}
+	for path, want := range required {
+		found := false
+		for _, c := range plan.Changes {
+			if c.Path == path {
+				found = true
+				if !strings.Contains(c.Content, want) {
+					t.Errorf("%s = %q, want %q", path, c.Content, want)
+				}
+				if strings.Contains(c.Content, "-f /etc/timesync-cli/ptp4l.conf -s eth2 -w") {
+					t.Errorf("%s uses client phc2sys direction", path)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing %s", path)
+		}
 	}
 }
 

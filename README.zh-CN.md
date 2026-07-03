@@ -12,7 +12,7 @@
 | 状态 | `timesync status` — 已配置角色、NTP/PTP 偏移与源、端口状态、路径延迟、systemd unit 状态 |
 | 配置 | `timesync apply auto\|master\|client`，支持 `--dry-run`、可选 `--ptp`、文件备份、`--yes` 确认覆盖 |
 | 交互配置 | `timesync tui` — 方向键菜单（doctor/status/apply）；非 TTY 时回退为编号问答 |
-| RTC 回写 | chrony 配置中的 `rtcsync`；PTP drop-in 中的 `phc2sys -w` |
+| RTC 回写 | chrony 配置中的 `rtcsync`；PTP unit 中的 `phc2sys -w` |
 | 发布 | [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) 提供 `linux/amd64`、`linux/arm64` 预编译包及 `.deb`/`.rpm` |
 
 ## NTP 和 PTP 是什么？
@@ -144,12 +144,14 @@ timesync tui
 | 路径 | 机制 | 方向 |
 |------|------|------|
 | NTP（chrony） | 生成配置中的 `rtcsync` | 系统时钟 → RTC（周期性回写） |
-| PTP（linuxptp） | `phc2sys -s <iface> -w` | PHC → 系统时钟；`-w` 在大步调整时写入 RTC |
+| PTP Client（linuxptp） | `phc2sys -s <iface> -w` | PHC -> 系统时钟；`-w` 在大步调整时写入 RTC |
+| PTP Master（linuxptp） | `phc2sys -s CLOCK_REALTIME -c <iface> -w` | 系统时钟 -> PHC |
 
 同步成功后：
 
 - **NTP 角色：** chrony 校准系统时钟，并通过 `rtcsync` 将修正推送到 RTC。
-- **PTP 角色：** `phc2sys` 以 PHC 为参考驯服系统时钟；带 `-w` 时大步调整会传播到 RTC。
+- **PTP Client 角色：** `phc2sys` 以 PHC 为参考驯服系统时钟；带 `-w` 时大步调整会传播到 RTC。
+- **PTP Master 角色：** `phc2sys` 以 `CLOCK_REALTIME` 为参考驯服 PHC，然后 `ptp4l` 把这个硬件时钟提供给客户端。
 
 ### 验证 RTC / 同步状态
 

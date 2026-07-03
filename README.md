@@ -12,7 +12,7 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Status | `timesync status` — configured role, NTP/PTP offset and source, port state, path delay, systemd unit state |
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups, `--yes` to confirm overwrites |
 | Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply; falls back to numbered prompts on non-TTY |
-| RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP drop-ins |
+| RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP units |
 | Releases | Pre-built `linux/amd64` and `linux/arm64` binaries plus `.deb`/`.rpm` on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 
 ## What are NTP and PTP?
@@ -144,12 +144,14 @@ There are three related clocks on a typical Linux device:
 | Path | Mechanism | Direction |
 |------|-----------|-------------|
 | NTP (chrony) | `rtcsync` in generated chrony config | System clock → RTC (periodic write-back) |
-| PTP (linuxptp) | `phc2sys -s <iface> -w` | PHC → system clock; `-w` also writes system time to RTC when stepping |
+| PTP client (linuxptp) | `phc2sys -s <iface> -w` | PHC -> system clock; `-w` also writes system time to RTC when stepping |
+| PTP master (linuxptp) | `phc2sys -s CLOCK_REALTIME -c <iface> -w` | System clock -> PHC |
 
 So after a successful sync:
 
 - **NTP roles:** chrony keeps the system clock aligned and pushes corrections to the RTC via `rtcsync`.
-- **PTP roles:** `phc2sys` disciplines the system clock from the PHC; with `-w`, large steps propagate to the RTC.
+- **PTP client roles:** `phc2sys` disciplines the system clock from the PHC; with `-w`, large steps propagate to the RTC.
+- **PTP master roles:** `phc2sys` disciplines the PHC from `CLOCK_REALTIME`, then `ptp4l` serves that hardware clock to clients.
 
 ### Verify RTC / sync state
 
