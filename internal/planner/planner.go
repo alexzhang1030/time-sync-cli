@@ -238,13 +238,13 @@ logMinDelayReqInterval -3
 unicast_listen        1
 
 [unicast_master_table]
-address               %s
-logAnnounceInterval   0
-logSyncInterval       -3
-logMinDelayReqInterval -3
+table_id              1
+logQueryInterval      0
+UDPv4                 %s
 
 [%s]
 network_transport     UDPv4
+unicast_master_table  1
 `, source, iface)) + "\n"
 	}
 	return strings.TrimSpace(fmt.Sprintf(`

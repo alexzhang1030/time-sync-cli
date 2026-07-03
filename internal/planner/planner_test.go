@@ -150,6 +150,18 @@ func TestPlanClient_PTP(t *testing.T) {
 			if !strings.Contains(c.Content, "192.168.1.1") {
 				t.Error("expected source in unicast_master_table")
 			}
+			if !strings.Contains(c.Content, "table_id              1") {
+				t.Error("expected unicast master table_id")
+			}
+			if !strings.Contains(c.Content, "UDPv4                 192.168.1.1") {
+				t.Error("expected linuxptp UDPv4 unicast master entry")
+			}
+			if !strings.Contains(c.Content, "unicast_master_table  1") {
+				t.Error("expected interface to reference unicast master table")
+			}
+			if strings.Contains(c.Content, "\naddress") {
+				t.Error("unexpected legacy address line in unicast master table")
+			}
 		}
 	}
 	if ptp4lCount != 1 {
