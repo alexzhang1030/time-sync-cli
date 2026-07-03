@@ -3,7 +3,9 @@ package status
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/alexzhang1030/time-sync-cli/internal/apply"
@@ -11,14 +13,14 @@ import (
 
 // Report holds read-only status from system time services.
 type Report struct {
-	Chrony   ChronyStatus   `json:"chrony" yaml:"chrony"`
-	PTP      PTPStatus      `json:"ptp" yaml:"ptp"`
-	Systemd  SystemdStatus  `json:"systemd" yaml:"systemd"`
-	Role     string         `json:"role" yaml:"role"`
-	ConfiguredRole string   `json:"configured_role" yaml:"configured_role"`
-	Source   string         `json:"source" yaml:"source"`
-	Offset   string         `json:"offset" yaml:"offset"`
-	Healthy  bool           `json:"healthy" yaml:"healthy"`
+	Chrony         ChronyStatus  `json:"chrony" yaml:"chrony"`
+	PTP            PTPStatus     `json:"ptp" yaml:"ptp"`
+	Systemd        SystemdStatus `json:"systemd" yaml:"systemd"`
+	Role           string        `json:"role" yaml:"role"`
+	ConfiguredRole string        `json:"configured_role" yaml:"configured_role"`
+	Source         string        `json:"source" yaml:"source"`
+	Offset         string        `json:"offset" yaml:"offset"`
+	Healthy        bool          `json:"healthy" yaml:"healthy"`
 }
 
 // ChronyStatus from chronyc tracking/sources.
@@ -110,7 +112,7 @@ func collectPTP() PTPStatus {
 	}
 	portOut, err := pmcQuery("PORT_DATA_SET")
 	if err != nil {
-		s.Detail = "unable to query ptp4l via pmc"
+		s.Detail = "unable to query ptp4l via pmc: " + err.Error()
 		return s
 	}
 	timeOut, _ := pmcQuery("TIME_STATUS_NP")
@@ -128,11 +130,18 @@ func collectPTP() PTPStatus {
 }
 
 func pmcQuery(dataSet string) (string, error) {
-	out, err := exec.Command("pmc", "-u", "-b", "0", "GET", dataSet).Output()
+	args, clientSocket := pmcQueryArgs(dataSet)
+	defer os.Remove(clientSocket)
+	out, err := exec.Command("pmc", args...).CombinedOutput()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
+}
+
+func pmcQueryArgs(dataSet string) ([]string, string) {
+	clientSocket := filepath.Join(os.TempDir(), fmt.Sprintf("timesync-pmc-%d-%s.sock", os.Getpid(), strings.ToLower(dataSet)))
+	return []string{"-u", "-i", clientSocket, "-b", "0", "GET", dataSet}, clientSocket
 }
 
 func configuredRole() string {
