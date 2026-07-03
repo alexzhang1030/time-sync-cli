@@ -184,6 +184,44 @@ func TestReportSummary_PTPPreferredWhenBothHealthy(t *testing.T) {
 		"Active role: ptp",
 		"Source: SLAVE",
 		"Offset: 42 ns",
+		"ntp offset: -1.462872982 s",
+		"ptp offset: 42 ns",
+	} {
+		if !contains(out, want) {
+			t.Errorf("Summary missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestReportSummary_MasterShowsPTPAndNTPOffsets(t *testing.T) {
+	r := &status.Report{
+		Healthy:        true,
+		NTPHealth:      true,
+		PTPHealth:      "true",
+		ConfiguredRole: "master",
+		Role:           "ptp",
+		Source:         "MASTER",
+		Offset:         "15 ns",
+		Chrony: status.ChronyStatus{
+			Active: true,
+			Offset: "0.000091882",
+		},
+		PTP: status.PTPStatus{
+			PTP4LActive:   true,
+			PHC2SysActive: true,
+			Available:     true,
+			PortState:     "MASTER",
+			MasterOffset:  "15",
+		},
+	}
+	out := r.Summary()
+	for _, want := range []string{
+		"Configured role: master",
+		"Active role: ptp",
+		"Offset: 15 ns",
+		"ntp offset: 0.000091882 s",
+		"port state: MASTER",
+		"ptp offset: 15 ns",
 	} {
 		if !contains(out, want) {
 			t.Errorf("Summary missing %q:\n%s", want, out)

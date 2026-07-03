@@ -310,6 +310,9 @@ func (r *Report) Summary() string {
 	fmt.Fprintf(&b, "  phc2sys: %s\n", r.Systemd.PHC2Sys)
 	fmt.Fprintf(&b, "\nChrony:\n")
 	fmt.Fprintf(&b, "  active: %v\n", r.Chrony.Active)
+	if r.Chrony.Offset != "" {
+		fmt.Fprintf(&b, "  ntp offset: %s\n", withUnit(r.Chrony.Offset, "s"))
+	}
 	if r.Chrony.Tracking != "" {
 		fmt.Fprintf(&b, "  tracking: %s\n", r.Chrony.Tracking)
 	}
@@ -319,6 +322,13 @@ func (r *Report) Summary() string {
 	if r.PTP.Available {
 		if r.PTP.PortState != "" {
 			fmt.Fprintf(&b, "  port state: %s\n", r.PTP.PortState)
+		}
+		metrics := PTPMetrics{
+			MasterOffset:     r.PTP.MasterOffset,
+			OffsetFromMaster: r.PTP.OffsetFromMaster,
+		}
+		if ptpOffset := metrics.PTPOffset(); ptpOffset != "" {
+			fmt.Fprintf(&b, "  ptp offset: %s\n", ptpOffset)
 		}
 		if r.PTP.MasterOffset != "" {
 			fmt.Fprintf(&b, "  master offset: %s ns\n", r.PTP.MasterOffset)
