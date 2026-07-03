@@ -8,16 +8,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
 // Report holds system detection results for doctor command.
 type Report struct {
-	OS              string            `json:"os" yaml:"os"`
-	Arch            string            `json:"arch" yaml:"arch"`
-	InitSystem      string            `json:"init_system" yaml:"init_system"`
-	Binaries        map[string]bool   `json:"binaries" yaml:"binaries"`
-	Interfaces      []InterfaceInfo   `json:"interfaces" yaml:"interfaces"`
+	OS              string             `json:"os" yaml:"os"`
+	Arch            string             `json:"arch" yaml:"arch"`
+	InitSystem      string             `json:"init_system" yaml:"init_system"`
+	Binaries        map[string]bool    `json:"binaries" yaml:"binaries"`
+	Interfaces      []InterfaceInfo    `json:"interfaces" yaml:"interfaces"`
 	PTPCapabilities map[string]PTPInfo `json:"ptp_capabilities" yaml:"ptp_capabilities"`
 }
 
@@ -29,10 +30,10 @@ type InterfaceInfo struct {
 
 // PTPInfo describes PTP timestamping capability for an interface.
 type PTPInfo struct {
-	Interface       string `json:"interface" yaml:"interface"`
-	HardwareTS      bool   `json:"hardware_timestamping" yaml:"hardware_timestamping"`
-	SoftwareTS      bool   `json:"software_timestamping" yaml:"software_timestamping"`
-	Raw             string `json:"raw,omitempty" yaml:"raw,omitempty"`
+	Interface  string `json:"interface" yaml:"interface"`
+	HardwareTS bool   `json:"hardware_timestamping" yaml:"hardware_timestamping"`
+	SoftwareTS bool   `json:"software_timestamping" yaml:"software_timestamping"`
+	Raw        string `json:"raw,omitempty" yaml:"raw,omitempty"`
 }
 
 var requiredBinaries = []string{
@@ -155,9 +156,20 @@ func parseEthtoolTimestamping(output string) (hardware, software bool) {
 		if (strings.Contains(lower, "software transmit") || strings.Contains(lower, "software receive")) && isEnabledValue(line) {
 			software = true
 		}
+		if lower == "hardware-transmit" || lower == "hardware-receive" || lower == "hardware-raw-clock" {
+			hardware = true
+		}
+		if lower == "software-transmit" || lower == "software-receive" {
+			software = true
+		}
 		if strings.Contains(lower, "ptp hardware clock") {
 			_, val, ok := strings.Cut(lower, ":")
-			if ok && strings.TrimSpace(val) != "none" && strings.TrimSpace(val) != "0" {
+			if !ok {
+				continue
+			}
+			clockID := strings.TrimSpace(val)
+			id, err := strconv.Atoi(clockID)
+			if err == nil && id >= 0 {
 				hardware = true
 			}
 		}
