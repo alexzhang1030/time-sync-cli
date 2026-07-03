@@ -2,6 +2,7 @@ package status
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -146,18 +147,81 @@ func collectPTP() PTPStatus {
 }
 
 func pmcQuery(dataSet string) (string, error) {
-	args, clientSocket := pmcQueryArgs(dataSet)
+	var errs []string
+	for _, serverSocket := range pmcServerSocketCandidates() {
+		out, err := pmcQueryWithServer(dataSet, serverSocket)
+		if err == nil {
+			return out, nil
+		}
+		if serverSocket == "" {
+			errs = append(errs, "default socket: "+err.Error())
+		} else {
+			errs = append(errs, serverSocket+": "+err.Error())
+		}
+	}
+	if hint := pmcPermissionHint(); hint != "" {
+		errs = append(errs, hint)
+	}
+	return "", errors.New(strings.Join(errs, "; "))
+}
+
+func pmcQueryWithServer(dataSet, serverSocket string) (string, error) {
+	args, clientSocket := pmcQueryArgsWithServer(dataSet, serverSocket)
 	defer os.Remove(clientSocket)
 	out, err := exec.Command("pmc", args...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
-	return string(out), nil
+	text := string(out)
+	if !strings.Contains(text, "RESPONSE MANAGEMENT") {
+		return "", fmt.Errorf("no management response from ptp4l: %s", strings.TrimSpace(text))
+	}
+	return text, nil
 }
 
 func pmcQueryArgs(dataSet string) ([]string, string) {
+	return pmcQueryArgsWithServer(dataSet, "")
+}
+
+func pmcQueryArgsWithServer(dataSet, serverSocket string) ([]string, string) {
 	clientSocket := filepath.Join(os.TempDir(), fmt.Sprintf("timesync-pmc-%d-%s.sock", os.Getpid(), strings.ToLower(dataSet)))
-	return []string{"-u", "-i", clientSocket, "-b", "0", "GET", dataSet}, clientSocket
+	args := []string{"-u"}
+	if serverSocket != "" {
+		args = append(args, "-s", serverSocket)
+	}
+	args = append(args, "-i", clientSocket, "-b", "0", "GET", dataSet)
+	return args, clientSocket
+}
+
+func pmcServerSocketCandidates() []string {
+	candidates := []string{""}
+	for _, socket := range []string{
+		"/var/run/ptp4l",
+		"/var/run/ptp/ptp4l",
+		"/var/run/ptp4lro",
+		"/var/run/ptp/ptp4lro",
+	} {
+		if _, err := os.Stat(socket); err == nil {
+			candidates = append(candidates, socket)
+		}
+	}
+	return candidates
+}
+
+func pmcPermissionHint() string {
+	if os.Geteuid() == 0 {
+		return ""
+	}
+	for _, socket := range []string{"/var/run/ptp4l", "/var/run/ptp/ptp4l"} {
+		info, err := os.Stat(socket)
+		if err != nil {
+			continue
+		}
+		if info.Mode().Perm()&0o007 == 0 {
+			return "ptp4l management socket may require root; try sudo timesync status"
+		}
+	}
+	return ""
 }
 
 func configuredRole() string {
