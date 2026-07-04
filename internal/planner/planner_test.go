@@ -156,19 +156,55 @@ func TestPlanMaster_PTP(t *testing.T) {
 			}
 		}
 		if c.Path == "/etc/systemd/system/ptp4l.service" {
-			if !strings.Contains(c.Content, "ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --require-trusted-system-clock") {
-				t.Error("expected PTP master boot guard before ptp4l starts")
+			if !strings.Contains(c.Content, "After=network-online.target chrony.service") {
+				t.Error("expected PTP master to start after chrony")
 			}
-			if strings.Contains(c.Content, "--repair-system-clock") {
-				t.Error("PTP master boot guard should keep system clock authority")
+			if !strings.Contains(c.Content, "StartLimitIntervalSec=0") {
+				t.Error("expected PTP master to keep retrying until chrony provides trusted time")
+			}
+			if !strings.Contains(c.Content, "ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock") {
+				t.Error("expected PTP master boot guard to seed PHC from trusted system time")
+			}
+			if strings.Contains(c.Content, "--require-trusted-system-clock") {
+				t.Error("PTP master boot guard should use chrony-gated system time")
 			}
 		}
 	}
 	if !found {
 		t.Error("expected PTP grandmaster config")
 	}
-	if len(plan.DisableUnits) != 1 || plan.DisableUnits[0] != "timesync-ptp-guard.timer" {
-		t.Fatalf("DisableUnits = %v, want [timesync-ptp-guard.timer]", plan.DisableUnits)
+	if len(plan.DisableUnits) != 0 {
+		t.Fatalf("DisableUnits = %v, want none", plan.DisableUnits)
+	}
+}
+
+func TestPlanMaster_PTPTimerGuard(t *testing.T) {
+	plan, err := planner.Plan(model.ApplyOptions{
+		Role:  model.RoleMaster,
+		Iface: "eth0",
+		PTP:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	required := map[string]string{
+		"/etc/systemd/system/timesync-ptp-guard.service": "ExecStart=/usr/bin/timesync guard-ptp",
+		"/etc/systemd/system/timesync-ptp-guard.timer":   "WantedBy=timers.target",
+	}
+	for path, want := range required {
+		found := false
+		for _, c := range plan.Changes {
+			if c.Path == path {
+				found = true
+				if !strings.Contains(c.Content, want) {
+					t.Errorf("%s missing %q", path, want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing %s", path)
+		}
 	}
 }
 

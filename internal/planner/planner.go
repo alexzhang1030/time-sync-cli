@@ -111,7 +111,6 @@ func planChangesMaster(plan *model.Plan, opts model.ApplyOptions) {
 
 	if opts.PTP {
 		plan.Changes = append(plan.Changes, ptpMasterChanges(opts.Iface)...)
-		plan.DisableUnits = appendUnique(plan.DisableUnits, "timesync-ptp-guard.timer")
 	}
 	if !opts.PTP {
 		disablePTPUnits(plan)
@@ -256,13 +255,25 @@ func ptpMasterChanges(iface string) []model.PlannedChange {
 			Kind:        "systemd",
 			Path:        "/etc/systemd/system/ptp4l.service",
 			Description: "systemd unit for ptp4l grandmaster",
-			Content:     renderPTP4LService(iface, bootGuardRequireTrustedSystem),
+			Content:     renderPTP4LMasterService(iface),
 		},
 		{
 			Kind:        "systemd",
 			Path:        "/etc/systemd/system/phc2sys.service",
 			Description: "systemd unit for phc2sys",
 			Content:     renderPHC2SysMasterService(iface),
+		},
+		{
+			Kind:        "systemd",
+			Path:        "/etc/systemd/system/timesync-ptp-guard.service",
+			Description: "systemd guard that keeps PTP and RTC state healthy",
+			Content:     renderPTPGuardService(),
+		},
+		{
+			Kind:        "systemd",
+			Path:        "/etc/systemd/system/timesync-ptp-guard.timer",
+			Description: "systemd timer for PTP runtime guard",
+			Content:     renderPTPGuardTimer(),
 		},
 	}
 }
@@ -440,6 +451,25 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 `, iface)) + "\n"
+}
+
+func renderPTP4LMasterService(iface string) string {
+	return strings.TrimSpace(fmt.Sprintf(`
+[Unit]
+Description=Precision Time Protocol configured by timesync-cli
+After=network-online.target chrony.service
+Wants=network-online.target chrony.service
+StartLimitIntervalSec=0
+
+[Service]
+ExecStartPre=%s boot-guard --iface %s --repair-system-clock
+ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+`, timesyncBin, iface)) + "\n"
 }
 
 func renderPTP4LService(iface string, mode bootGuardMode) string {

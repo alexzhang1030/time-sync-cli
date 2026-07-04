@@ -116,23 +116,26 @@ func BootGuard(opts Options) (*Result, error) {
 
 	result := &Result{Iface: iface}
 	if opts.RepairSystemClock || opts.RequireTrustedSystemClock {
-		rtcEpoch, err := readRTCEpoch(rtcPath)
-		if err != nil {
-			return nil, err
-		}
-		result.RTCEpoch = rtcEpoch
 		systemEpoch := now().Unix()
 		needsRTC := systemEpoch < minTrustedRTCEpoch
-		if opts.RepairSystemClock && needsRTC {
-			if err := runStep(runner, result, "date", "-u", "-s", "@"+strconv.FormatInt(rtcEpoch, 10)); err != nil {
+		needsRTCComparison := opts.RequireTrustedSystemClock || needsRTC
+		if needsRTCComparison {
+			rtcEpoch, err := readRTCEpoch(rtcPath)
+			if err != nil {
 				return nil, err
 			}
-		}
-		if opts.RequireTrustedSystemClock && needsRTC {
-			return nil, fmt.Errorf("system clock is not trusted enough to start PTP service; run sudo timesync repair-clock or restore a trusted time source")
-		}
-		if systemEpoch >= minTrustedRTCEpoch && absInt64(systemEpoch-rtcEpoch) > maxSystemRTCSkewSec {
-			return nil, fmt.Errorf("system clock and RTC differ by more than %d seconds; restore a trusted time source before starting PTP", maxSystemRTCSkewSec)
+			result.RTCEpoch = rtcEpoch
+			if opts.RepairSystemClock && needsRTC {
+				if err := runStep(runner, result, "date", "-u", "-s", "@"+strconv.FormatInt(rtcEpoch, 10)); err != nil {
+					return nil, err
+				}
+			}
+			if opts.RequireTrustedSystemClock && needsRTC {
+				return nil, fmt.Errorf("system clock is not trusted enough to start PTP service; run sudo timesync repair-clock or restore a trusted time source")
+			}
+			if systemEpoch >= minTrustedRTCEpoch && absInt64(systemEpoch-rtcEpoch) > maxSystemRTCSkewSec {
+				return nil, fmt.Errorf("system clock and RTC differ by more than %d seconds; restore a trusted time source before starting PTP", maxSystemRTCSkewSec)
+			}
 		}
 	}
 	if err := runStep(runner, result, "phc_ctl", iface, "set"); err != nil {

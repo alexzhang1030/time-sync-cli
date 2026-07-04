@@ -154,8 +154,8 @@ func TestBootGuardKeepsTrustedSystemClockAndSeedsPHC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RTCEpoch != 1783162153 {
-		t.Fatalf("RTCEpoch = %d, want 1783162153", result.RTCEpoch)
+	if result.RTCEpoch != 0 {
+		t.Fatalf("RTCEpoch = %d, want 0", result.RTCEpoch)
 	}
 	want := []string{"phc_ctl eth0 set"}
 	if !reflect.DeepEqual(runner.commands, want) {
@@ -163,7 +163,33 @@ func TestBootGuardKeepsTrustedSystemClockAndSeedsPHC(t *testing.T) {
 	}
 }
 
-func TestBootGuardRejectsTrustedSystemClockRTCSkew(t *testing.T) {
+func TestBootGuardKeepsTrustedSystemClockWhenRTCIsEpoch(t *testing.T) {
+	restoreEUID := stubRoot(t)
+	defer restoreEUID()
+	restoreNow := stubNow(time.Unix(1783162152, 0))
+	defer restoreNow()
+
+	dir := t.TempDir()
+	rtcPath := filepath.Join(dir, "since_epoch")
+	if err := os.WriteFile(rtcPath, []byte("40\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+
+	result, err := BootGuard(Options{Iface: "eth0", RTCPath: rtcPath, RepairSystemClock: true, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RTCEpoch != 0 {
+		t.Fatalf("RTCEpoch = %d, want 0", result.RTCEpoch)
+	}
+	want := []string{"phc_ctl eth0 set"}
+	if !reflect.DeepEqual(runner.commands, want) {
+		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
+	}
+}
+
+func TestBootGuardRepairModeTrustsSystemClockOverSkewedRTC(t *testing.T) {
 	restoreEUID := stubRoot(t)
 	defer restoreEUID()
 	restoreNow := stubNow(time.Unix(1783150000, 0))
@@ -176,7 +202,33 @@ func TestBootGuardRejectsTrustedSystemClockRTCSkew(t *testing.T) {
 	}
 	runner := &fakeRunner{}
 
-	_, err := BootGuard(Options{Iface: "eth0", RTCPath: rtcPath, RepairSystemClock: true, Runner: runner})
+	result, err := BootGuard(Options{Iface: "eth0", RTCPath: rtcPath, RepairSystemClock: true, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RTCEpoch != 0 {
+		t.Fatalf("RTCEpoch = %d, want 0", result.RTCEpoch)
+	}
+	want := []string{"phc_ctl eth0 set"}
+	if !reflect.DeepEqual(runner.commands, want) {
+		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
+	}
+}
+
+func TestBootGuardRequireTrustedRejectsSystemClockRTCSkew(t *testing.T) {
+	restoreEUID := stubRoot(t)
+	defer restoreEUID()
+	restoreNow := stubNow(time.Unix(1783150000, 0))
+	defer restoreNow()
+
+	dir := t.TempDir()
+	rtcPath := filepath.Join(dir, "since_epoch")
+	if err := os.WriteFile(rtcPath, []byte("1783162152\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+
+	_, err := BootGuard(Options{Iface: "eth0", RTCPath: rtcPath, RequireTrustedSystemClock: true, Runner: runner})
 	if err == nil {
 		t.Fatal("expected error")
 	}
