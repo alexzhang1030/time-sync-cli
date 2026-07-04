@@ -1,6 +1,6 @@
 ---
 name: timesync-quick-config
-description: Configure and verify time-sync-cli NTP/PTP roles on robot and industrial Linux hosts, including Darwin VLA master/slave topology and 1970 clock recovery.
+description: Configure and verify time-sync-cli NTP/PTP roles on robot and industrial Linux hosts, including master/slave PTP topology and 1970 clock recovery.
 ---
 
 # timesync-quick-config
@@ -55,17 +55,17 @@ PTP slave:
 sudo timesync apply client --iface <slave-iface> --source <master-ip> --ptp --yes
 ```
 
-Darwin VLA target topology:
+Fleet target topology template:
 
 ```bash
-# darwin_vla_orin
-sudo timesync apply master --iface eth2 --ptp --ntp-pool cn.pool.ntp.org --ntp-serve-cidr 192.168.71.0/24 --yes
+# master-host
+sudo timesync apply master --iface <master-iface> --ptp --ntp-pool cn.pool.ntp.org --ntp-serve-cidr <ptp-cidr> --yes
 
-# darwin_vla_rt
-sudo timesync apply client --iface eth0 --source 192.168.71.51 --ptp --yes
+# slave-a
+sudo timesync apply client --iface <slave-a-iface> --source <master-ip> --ptp --yes
 
-# darwin_vla_5090
-sudo timesync apply client --iface enp3s0 --source 192.168.71.51 --ptp --yes
+# slave-b
+sudo timesync apply client --iface <slave-b-iface> --source <master-ip> --ptp --yes
 ```
 
 ## Verify
@@ -107,12 +107,12 @@ ptp4l: active
 phc2sys: active
 ```
 
-Darwin VLA final verified targets:
+Final verified target template:
 
 ```text
-darwin_vla_orin  master  eth2    192.168.71.51  grandmaster 90b3d5.fffe.543702
-darwin_vla_rt    slave   eth0    192.168.71.13  source 192.168.71.51
-darwin_vla_5090  slave   enp3s0  192.168.71.60  source 192.168.71.51
+master-host  master  <master-iface>   <master-ip>  grandmaster <gm-identity>
+slave-a      slave   <slave-a-iface>  <slave-a-ip> source <master-ip>
+slave-b      slave   <slave-b-iface>  <slave-b-ip> source <master-ip>
 ```
 
 ## Epoch Recovery

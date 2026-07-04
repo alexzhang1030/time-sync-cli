@@ -19,22 +19,22 @@ Use the repository skill at `skills/timesync-quick-config/SKILL.md` for:
 - configuring NTP/PTP master and PTP slave fleets,
 - recovering a host from an epoch clock reset,
 - validating status output after role changes,
-- preparing Darwin VLA hosts.
+- preparing a master/slave PTP fleet.
 
-## Darwin VLA Reference Topology
+## Fleet Reference Topology
 
-Current intended topology:
+Use placeholders for user-specific hostnames, interfaces, and subnets in repository docs:
 
-- `darwin_vla_orin`: NTP + PTP master on `eth2`, PTP/NTP network `192.168.71.0/24`, master IP `192.168.71.51`.
-- `darwin_vla_rt`: PTP slave on `eth0`, source `192.168.71.51`.
-- `darwin_vla_5090`: PTP slave on `enp3s0`, source `192.168.71.51`.
+- `master-host`: NTP + PTP master on `<master-iface>`, PTP/NTP network `<ptp-cidr>`, master IP `<master-ip>`.
+- `slave-a`: PTP slave on `<slave-a-iface>`, source `<master-ip>`.
+- `slave-b`: PTP slave on `<slave-b-iface>`, source `<master-ip>`.
 
 Apply commands:
 
 ```bash
-sudo timesync apply master --iface eth2 --ptp --ntp-pool cn.pool.ntp.org --ntp-serve-cidr 192.168.71.0/24 --yes
-sudo timesync apply client --iface eth0 --source 192.168.71.51 --ptp --yes
-sudo timesync apply client --iface enp3s0 --source 192.168.71.51 --ptp --yes
+sudo timesync apply master --iface <master-iface> --ptp --ntp-pool cn.pool.ntp.org --ntp-serve-cidr <ptp-cidr> --yes
+sudo timesync apply client --iface <slave-a-iface> --source <master-ip> --ptp --yes
+sudo timesync apply client --iface <slave-b-iface> --source <master-ip> --ptp --yes
 ```
 
 Verification:
