@@ -36,6 +36,10 @@ func TestPlanAuto_DryRun(t *testing.T) {
 	if !found {
 		t.Error("missing chrony config change")
 	}
+	wantDisabled := []string{"timesync-ptp-guard.timer", "phc2sys", "ptp4l"}
+	if strings.Join(plan.DisableUnits, ",") != strings.Join(wantDisabled, ",") {
+		t.Fatalf("DisableUnits = %v, want %v", plan.DisableUnits, wantDisabled)
+	}
 	for _, c := range plan.Changes {
 		if strings.Contains(c.Path, "chrony.service.d") {
 			return
@@ -56,23 +60,37 @@ func TestPlanAuto_WithPTP(t *testing.T) {
 	if !plan.PTP {
 		t.Error("expected PTP enabled in plan")
 	}
-	hasPTP4L, hasPHC2Sys := false, false
+	hasPTP4L, hasPHC2Sys, hasGuard := false, false, false
 	for _, c := range plan.Changes {
 		if c.Path == "/etc/systemd/system/ptp4l.service" {
 			hasPTP4L = true
 			if !strings.Contains(c.Content, "[Install]") {
 				t.Error("expected install section in ptp4l service")
 			}
+			if !strings.Contains(c.Content, "ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --require-trusted-system-clock") {
+				t.Error("expected PTP boot guard before ptp4l starts")
+			}
+			if strings.Contains(c.Content, "--repair-system-clock") {
+				t.Error("auto PTP boot guard should keep chrony as system clock authority")
+			}
 		}
 		if c.Path == "/etc/systemd/system/phc2sys.service" {
 			hasPHC2Sys = true
-			if !strings.Contains(c.Content, "Requires=ptp4l.service") {
-				t.Error("expected phc2sys service to require ptp4l")
-			}
+		}
+		if strings.Contains(c.Path, "timesync-ptp-guard") {
+			hasGuard = true
 		}
 	}
-	if !hasPTP4L || !hasPHC2Sys {
-		t.Errorf("expected ptp4l and phc2sys service units, ptp4l=%v phc2sys=%v", hasPTP4L, hasPHC2Sys)
+	if !hasPTP4L || hasPHC2Sys || hasGuard {
+		t.Errorf("expected only ptp4l PTP unit, ptp4l=%v phc2sys=%v guard=%v", hasPTP4L, hasPHC2Sys, hasGuard)
+	}
+	wantDisabled := []string{"timesync-ptp-guard.timer", "phc2sys"}
+	if strings.Join(plan.DisableUnits, ",") != strings.Join(wantDisabled, ",") {
+		t.Fatalf("DisableUnits = %v, want %v", plan.DisableUnits, wantDisabled)
+	}
+	formatted := planner.FormatPlan(plan)
+	if !strings.Contains(formatted, "chrony as the only system clock discipline source") {
+		t.Fatalf("formatted plan missing auto PTP single-writer warning:\n%s", formatted)
 	}
 }
 
@@ -114,6 +132,10 @@ func TestPlanMaster_NTP(t *testing.T) {
 	if !hasChronyDropIn {
 		t.Error("missing chrony.service drop-in")
 	}
+	wantDisabled := []string{"timesync-ptp-guard.timer", "phc2sys", "ptp4l"}
+	if strings.Join(plan.DisableUnits, ",") != strings.Join(wantDisabled, ",") {
+		t.Fatalf("DisableUnits = %v, want %v", plan.DisableUnits, wantDisabled)
+	}
 }
 
 func TestPlanMaster_PTP(t *testing.T) {
@@ -133,9 +155,20 @@ func TestPlanMaster_PTP(t *testing.T) {
 				t.Error("expected PTP master to listen for unicast clients")
 			}
 		}
+		if c.Path == "/etc/systemd/system/ptp4l.service" {
+			if !strings.Contains(c.Content, "ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --require-trusted-system-clock") {
+				t.Error("expected PTP master boot guard before ptp4l starts")
+			}
+			if strings.Contains(c.Content, "--repair-system-clock") {
+				t.Error("PTP master boot guard should keep system clock authority")
+			}
+		}
 	}
 	if !found {
 		t.Error("expected PTP grandmaster config")
+	}
+	if len(plan.DisableUnits) != 1 || plan.DisableUnits[0] != "timesync-ptp-guard.timer" {
+		t.Fatalf("DisableUnits = %v, want [timesync-ptp-guard.timer]", plan.DisableUnits)
 	}
 }
 
@@ -181,15 +214,23 @@ func TestPlanClient_NTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	foundChrony := false
 	for _, c := range plan.Changes {
 		if strings.Contains(c.Path, "chrony.conf") {
+			foundChrony = true
 			if !strings.Contains(c.Content, "server 192.168.1.1") {
 				t.Error("client chrony missing server directive")
 			}
-			return
+			break
 		}
 	}
-	t.Error("missing chrony client config")
+	if !foundChrony {
+		t.Error("missing chrony client config")
+	}
+	wantDisabled := []string{"timesync-ptp-guard.timer", "phc2sys", "ptp4l"}
+	if strings.Join(plan.DisableUnits, ",") != strings.Join(wantDisabled, ",") {
+		t.Fatalf("DisableUnits = %v, want %v", plan.DisableUnits, wantDisabled)
+	}
 }
 
 func TestPlanClient_PTP(t *testing.T) {
@@ -221,6 +262,15 @@ func TestPlanClient_PTP(t *testing.T) {
 			if !strings.Contains(c.Content, "unicast_master_table  1") {
 				t.Error("expected interface to reference unicast master table")
 			}
+			if !strings.Contains(c.Content, "first_step_threshold  1.0") {
+				t.Error("expected initial PTP step threshold")
+			}
+			if !strings.Contains(c.Content, "step_threshold        1.0") {
+				t.Error("expected PTP step threshold")
+			}
+			if !strings.Contains(c.Content, "clientOnly            1") {
+				t.Error("expected clientOnly in PTP client config")
+			}
 			if strings.Contains(c.Content, "\naddress") {
 				t.Error("unexpected legacy address line in unicast master table")
 			}
@@ -232,11 +282,12 @@ func TestPlanClient_PTP(t *testing.T) {
 	if ptp4lCount != 1 {
 		t.Errorf("expected exactly one ptp4l.conf change, got %d", ptp4lCount)
 	}
-	if len(plan.DisableUnits) != 1 || plan.DisableUnits[0] != "chrony" {
-		t.Fatalf("DisableUnits = %v, want [chrony]", plan.DisableUnits)
+	wantDisabled := []string{"chrony", "chronyd"}
+	if strings.Join(plan.DisableUnits, ",") != strings.Join(wantDisabled, ",") {
+		t.Fatalf("DisableUnits = %v, want %v", plan.DisableUnits, wantDisabled)
 	}
 	formatted := planner.FormatPlan(plan)
-	if !strings.Contains(formatted, "Systemd units to disable:") || !strings.Contains(formatted, "- chrony") {
+	if !strings.Contains(formatted, "Systemd units to disable:") || !strings.Contains(formatted, "- chrony") || !strings.Contains(formatted, "- chronyd") {
 		t.Fatalf("formatted plan missing chrony disable action:\n%s", formatted)
 	}
 	if !strings.Contains(formatted, "phc2sys is the only system clock discipline source") {
@@ -256,8 +307,10 @@ func TestPlanClient_PTPSystemdUnitsAreEnableable(t *testing.T) {
 	}
 
 	required := map[string]string{
-		"/etc/systemd/system/ptp4l.service":   "ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf",
-		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s eth0 -w -S 1.0",
+		"/etc/systemd/system/ptp4l.service":              "ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf",
+		"/etc/systemd/system/phc2sys.service":            "ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s eth0 -w -S 1.0",
+		"/etc/systemd/system/timesync-ptp-guard.service": "ExecStart=/usr/bin/timesync guard-ptp",
+		"/etc/systemd/system/timesync-ptp-guard.timer":   "OnUnitActiveSec=5s",
 	}
 	for path, execStart := range required {
 		found := false
@@ -270,7 +323,16 @@ func TestPlanClient_PTPSystemdUnitsAreEnableable(t *testing.T) {
 				if !strings.Contains(c.Content, execStart) {
 					t.Errorf("%s missing ExecStart", path)
 				}
-				if !strings.Contains(c.Content, "[Install]") {
+				if path == "/etc/systemd/system/ptp4l.service" && !strings.Contains(c.Content, "ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock") {
+					t.Errorf("%s missing boot guard", path)
+				}
+				if path == "/etc/systemd/system/phc2sys.service" && !strings.Contains(c.Content, "ExecStartPre=/usr/bin/timesync wait-ptp --timeout 30s") {
+					t.Errorf("%s missing PTP health wait", path)
+				}
+				if path == "/etc/systemd/system/timesync-ptp-guard.timer" && !strings.Contains(c.Content, "WantedBy=timers.target") {
+					t.Errorf("%s missing timer install target", path)
+				}
+				if path != "/etc/systemd/system/timesync-ptp-guard.service" && !strings.Contains(c.Content, "[Install]") {
 					t.Errorf("%s missing install section", path)
 				}
 			}

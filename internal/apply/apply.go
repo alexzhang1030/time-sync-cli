@@ -114,10 +114,10 @@ func (a *Applier) Apply(plan *model.Plan) error {
 	}
 
 	for _, unit := range plan.DisableUnits {
-		if err := runSystemctl("stop", unit); err != nil {
+		if err := runSystemctlAllowMissing("stop", unit); err != nil {
 			return fmt.Errorf("systemctl stop %s: %w", unit, err)
 		}
-		if err := runSystemctl("disable", unit); err != nil {
+		if err := runSystemctlAllowMissing("disable", unit); err != nil {
 			return fmt.Errorf("systemctl disable %s: %w", unit, err)
 		}
 	}
@@ -234,6 +234,8 @@ func unitFromChangePath(path string) string {
 		return "phc2sys"
 	case strings.Contains(path, "phc2sys.service.d"):
 		return "phc2sys"
+	case filepath.Base(path) == "timesync-ptp-guard.timer":
+		return "timesync-ptp-guard.timer"
 	default:
 		return ""
 	}
@@ -270,4 +272,27 @@ func runSystemctl(args ...string) error {
 		return fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func runSystemctlAllowMissing(args ...string) error {
+	err := runSystemctl(args...)
+	if err == nil || systemctlMissingUnit(err) {
+		return nil
+	}
+	return err
+}
+
+func systemctlMissingUnit(err error) bool {
+	text := err.Error()
+	for _, marker := range []string{
+		"not loaded",
+		"not found",
+		"does not exist",
+		"No such file or directory",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }

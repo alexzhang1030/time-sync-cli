@@ -9,10 +9,11 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Area | What works |
 |------|------------|
 | Detection | `timesync doctor` — OS, systemd, required binaries, interfaces, PTP hardware timestamping via `ethtool -T` |
-| Status | `timesync status` — configured role, NTP/PTP offset and source, port state, path delay, systemd unit state |
+| Status | `timesync status` — configured role, NTP/PTP offset and source, clock health, port state, path delay, systemd unit state |
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups, `--yes` to confirm overwrites |
 | Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply; falls back to numbered prompts on non-TTY |
-| RTC write-back | `rtcsync` in chrony configs; `phc2sys -w` in PTP units |
+| RTC write-back | `rtcsync` in chrony configs; PTP runtime guard writes trusted system time to RTC |
+| Clock repair | `timesync repair-clock` — recover system time and PHC from RTC after an epoch reset |
 | Releases | Pre-built `linux/amd64` and `linux/arm64` binaries plus `.deb`/`.rpm` on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 
 ## What are NTP and PTP?
@@ -45,6 +46,8 @@ Best for:
 
 `timesync` manages PTP through **linuxptp** (`ptp4l`, `phc2sys`).
 
+Generated PTP systemd units run a boot guard before `ptp4l` starts. PTP client units repair epoch system time from RTC, then initialize the interface PHC from the system clock. When system time and RTC are both plausible but disagree by more than 1 hour, PTP startup fails closed. PTP master and auto units require trusted system time before PTP starts, then initialize PHC. PTP client units also gate `phc2sys` startup on healthy PTP, so PHC-to-system sync can repair a bad system clock after `ptp4l` is a healthy slave with bounded offset.
+
 ### NTP vs PTP (quick comparison)
 
 | | NTP | PTP |
@@ -61,22 +64,24 @@ Best for:
 
 | Role | NTP behavior | PTP behavior | When to use |
 |------|--------------|--------------|-------------|
-| `auto` | NTP client → internet pool | Optional PTP client if `--ptp` and HW supports it | Edge device with internet; never becomes master silently |
+| `auto` | NTP client → internet pool | Optional PTP monitor if `--ptp` and HW supports it | Edge device with internet; never becomes master silently |
 | `master` | NTP server for a CIDR | Optional PTP grandmaster with `--ptp` | Local time source for a cell / subnet |
 | `client` | NTP client → `--source` | Optional PTP slave with `--ptp` | Follow a known upstream host |
 
 ### Enable auto mode (internet sync, safe default)
 
 ```bash
-# Preview — NTP client to pool.ntp.org; optional PTP if --ptp and HW supports it
+# Preview — NTP client to pool.ntp.org; optional PTP monitor if --ptp and HW supports it
 timesync apply auto --dry-run --iface eth0
 
 # Apply
 sudo timesync apply auto --iface eth0 --ntp-pool pool.ntp.org
-sudo timesync apply auto --iface eth0 --ptp   # also enable PTP slave when HW supports it
+sudo timesync apply auto --iface eth0 --ptp   # also run ptp4l monitoring when HW supports it
 ```
 
 `auto` never enables local NTP serving or PTP grandmaster — use `apply master` explicitly for that.
+Applying a non-PTP role stops old timesync-managed PTP services and the runtime guard timer, so stale PHC-to-system sync cannot keep running after a role switch.
+`auto --ptp` keeps chrony as the single system clock discipline source and runs `ptp4l` without `phc2sys`, avoiding simultaneous NTP/PTP writes to `CLOCK_REALTIME`.
 
 ### Enable NTP master (serve time locally)
 
@@ -144,13 +149,13 @@ There are three related clocks on a typical Linux device:
 | Path | Mechanism | Direction |
 |------|-----------|-------------|
 | NTP (chrony) | `rtcsync` in generated chrony config | System clock → RTC (periodic write-back) |
-| PTP client (linuxptp) | `phc2sys -s <iface> -w -S 1.0` | PHC -> system clock; `-S 1.0` steps large initial offsets |
-| PTP master (linuxptp) | `phc2sys -s CLOCK_REALTIME -c <iface> -w -S 1.0` | System clock -> PHC; `-S 1.0` steps large initial offsets |
+| PTP client (linuxptp) | `phc2sys -s <iface> -w -S 1.0` | PHC -> system clock; `-w` waits for ptp4l; `-S 1.0` steps large initial offsets |
+| PTP master (linuxptp) | `phc2sys -s CLOCK_REALTIME -c <iface> -w -S 1.0` | System clock -> PHC; `-w` waits for ptp4l; `-S 1.0` steps large initial offsets |
 
 So after a successful sync:
 
 - **NTP roles:** chrony keeps the system clock aligned and pushes corrections to the RTC via `rtcsync`.
-- **PTP client roles:** `timesync` disables chrony, then `phc2sys` disciplines the system clock from the PHC and steps offsets larger than 1 second.
+- **PTP client roles:** `timesync` disables both common chrony service names (`chrony` and `chronyd`), waits for healthy `ptp4l` slave state, then `phc2sys` disciplines the system clock from the PHC and steps offsets larger than 1 second. The runtime guard writes system time back to RTC after PTP, PHC, and system time are mutually trusted.
 - **PTP master roles:** `phc2sys` disciplines the PHC from `CLOCK_REALTIME`, then `ptp4l` serves that hardware clock to clients.
 
 ### Verify RTC / sync state
@@ -161,6 +166,60 @@ chronyc tracking          # NTP offset and reference
 pmc -u -b 0 'GET TIME_STATUS_NP'   # raw PTP offset (linuxptp)
 timedatectl status        # system clock + RTC sync flag
 ```
+
+`timesync status` also reports system/RTC/PHC Unix time and skew. It marks clock health false when system time is near epoch, RTC is near epoch, RTC differs from system time by more than 1 hour, or PHC differs from system time by more than 120 seconds. Configured PTP client/master overall health requires the expected PTP port state plus active `phc2sys`, so stale NTP or inactive PHC-to-system sync cannot mask a broken configured PTP role.
+
+### Recover from a 1970 / epoch clock reset
+
+When the system clock and NIC PHC fall back near `1970-01-01`, PTP may enter `SLAVE` while reporting a huge `master offset`. Use RTC as a fast bootstrap, then let PTP converge:
+
+```bash
+sudo timesync repair-clock
+```
+
+The command uses the last applied `timesync` interface from `/etc/timesync-cli/state.json`. For explicit interface selection:
+
+```bash
+sudo timesync repair-clock --iface eth0
+```
+
+Equivalent manual sequence:
+
+```bash
+sudo systemctl stop phc2sys ptp4l
+sudo date -u -s "@$(cat /sys/class/rtc/rtc0/since_epoch)"
+sudo phc_ctl eth0 set
+sudo systemctl start ptp4l
+sudo systemctl start phc2sys
+timesync status
+```
+
+Generated PTP roles also install this prevention path into `ptp4l.service`:
+
+```ini
+ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
+```
+
+PTP master and auto roles use a stricter serving gate:
+
+```ini
+ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --require-trusted-system-clock
+```
+
+Generated PTP client roles also gate `phc2sys` startup:
+
+```ini
+ExecStartPre=/usr/bin/timesync wait-ptp --timeout 30s
+```
+
+PTP client roles also install a runtime guard timer:
+
+```ini
+ExecStart=/usr/bin/timesync guard-ptp
+OnUnitActiveSec=5s
+```
+
+The guard keeps `phc2sys` stopped while PTP health is red. When PTP is healthy, it starts or keeps `phc2sys` running so a healthy PHC can repair a bad system clock. When system and PHC are close but RTC is stale, the guard writes the trusted system time back into RTC. Guard protection actions exit successfully and log the action, so the periodic timer keeps running during an extended fault.
 
 ## How it works (implementation)
 
@@ -195,7 +254,9 @@ timedatectl status        # system clock + RTC sync flag
 /etc/systemd/system/
 ├── chrony.service.d/timesync-cli.conf
 ├── ptp4l.service
-└── phc2sys.service
+├── phc2sys.service
+├── timesync-ptp-guard.service
+└── timesync-ptp-guard.timer
 ```
 
 ## Requirements
@@ -220,7 +281,7 @@ Download from the [latest release](https://github.com/alexzhang1030/time-sync-cl
 # Example: amd64
 curl -fsSL -o timesync https://github.com/alexzhang1030/time-sync-cli/releases/latest/download/timesync-linux-amd64
 chmod +x timesync
-sudo mv timesync /usr/local/bin/
+sudo install -m 0755 timesync /usr/bin/timesync
 ```
 
 ### Distro packages (`.deb`, `.rpm`)
@@ -274,7 +335,7 @@ The uninstall script stops timesync-managed PTP services, removes timesync syste
 
 ```bash
 go build -o timesync ./cmd/timesync
-sudo mv timesync /usr/local/bin/
+sudo install -m 0755 timesync /usr/bin/timesync
 ```
 
 ## Commands
@@ -285,6 +346,7 @@ timesync status                                          # sync health, role, NT
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run] [--yes]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run] [--yes]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run] [--yes]
+sudo timesync repair-clock [--iface eth0]                 # recover system time and PHC from RTC after epoch reset
 timesync uninstall [--dry-run] [--yes]                     # remove timesync-managed NTP/PTP role config
 timesync tui                                             # guided interactive setup
 timesync rollback                                        # restore files from last apply backup
@@ -318,7 +380,7 @@ timesync uninstall --dry-run
 sudo timesync uninstall --yes
 ```
 
-This removes timesync-managed NTP/PTP Master/Client configuration, including `/etc/timesync-cli`, timesync systemd drop-ins, and timesync-created `ptp4l` / `phc2sys` units. The `timesync` binary and runtime packages remain installed.
+This removes timesync-managed NTP/PTP Master/Client configuration, including `/etc/timesync-cli`, timesync systemd drop-ins, timesync-created `ptp4l` / `phc2sys` units, and the PTP guard timer. The `timesync` binary and runtime packages remain installed.
 
 One-line cleanup:
 

@@ -38,11 +38,24 @@ func TestUnitsForPlan_PTP(t *testing.T) {
 		Changes: []model.PlannedChange{
 			{Path: "/etc/systemd/system/ptp4l.service"},
 			{Path: "/etc/systemd/system/phc2sys.service"},
+			{Path: "/etc/systemd/system/timesync-ptp-guard.service"},
+			{Path: "/etc/systemd/system/timesync-ptp-guard.timer"},
 		},
 	}
 	units := apply.UnitsForPlan(plan)
-	if len(units) != 2 {
-		t.Fatalf("units = %v, want ptp4l and phc2sys", units)
+	if len(units) != 3 {
+		t.Fatalf("units = %v, want ptp4l, phc2sys, and timesync-ptp-guard.timer", units)
+	}
+	want := map[string]bool{
+		"ptp4l":                    true,
+		"phc2sys":                  true,
+		"timesync-ptp-guard.timer": true,
+	}
+	for _, unit := range units {
+		delete(want, unit)
+	}
+	for unit := range want {
+		t.Fatalf("units = %v, missing %s", units, unit)
 	}
 }
 

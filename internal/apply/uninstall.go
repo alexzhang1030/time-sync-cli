@@ -35,8 +35,10 @@ func (a *Applier) PlanUninstall() (*UninstallPlan, error) {
 
 	plan := &UninstallPlan{}
 	for _, action := range []UninstallAction{
+		{Kind: "systemd", Target: "timesync-ptp-guard.timer", Detail: "stop"},
 		{Kind: "systemd", Target: "phc2sys.service", Detail: "stop"},
 		{Kind: "systemd", Target: "ptp4l.service", Detail: "stop"},
+		{Kind: "systemd", Target: "timesync-ptp-guard.timer", Detail: "disable"},
 		{Kind: "systemd", Target: "phc2sys.service", Detail: "disable"},
 		{Kind: "systemd", Target: "ptp4l.service", Detail: "disable"},
 	} {
@@ -63,7 +65,7 @@ func (a *Applier) PlanUninstall() (*UninstallPlan, error) {
 
 	for _, action := range []UninstallAction{
 		{Kind: "systemd", Target: "daemon-reload", Detail: "reload systemd"},
-		{Kind: "systemd", Target: "chrony.service chronyd.service ptp4l.service phc2sys.service", Detail: "reset-failed"},
+		{Kind: "systemd", Target: "chrony.service chronyd.service ptp4l.service phc2sys.service timesync-ptp-guard.service timesync-ptp-guard.timer", Detail: "reset-failed"},
 		{Kind: "systemd", Target: "chrony.service", Detail: "try-restart"},
 		{Kind: "systemd", Target: "chronyd.service", Detail: "try-restart"},
 	} {
@@ -89,8 +91,10 @@ func (a *Applier) Uninstall() error {
 		a.SystemdDir = DefaultSystemdDir
 	}
 
+	_ = runSystemctl("stop", "timesync-ptp-guard.timer")
 	_ = runSystemctl("stop", "phc2sys.service")
 	_ = runSystemctl("stop", "ptp4l.service")
+	_ = runSystemctl("disable", "timesync-ptp-guard.timer")
 	_ = runSystemctl("disable", "phc2sys.service")
 	_ = runSystemctl("disable", "ptp4l.service")
 
@@ -118,7 +122,7 @@ func (a *Applier) Uninstall() error {
 	if err := runSystemctl("daemon-reload"); err != nil {
 		return fmt.Errorf("systemctl daemon-reload: %w", err)
 	}
-	_ = runSystemctl("reset-failed", "chrony.service", "chronyd.service", "ptp4l.service", "phc2sys.service")
+	_ = runSystemctl("reset-failed", "chrony.service", "chronyd.service", "ptp4l.service", "phc2sys.service", "timesync-ptp-guard.service", "timesync-ptp-guard.timer")
 	_ = runSystemctl("try-restart", "chrony.service")
 	_ = runSystemctl("try-restart", "chronyd.service")
 	return nil
@@ -151,6 +155,8 @@ func (a *Applier) timesyncUnitPaths() []string {
 	return []string{
 		filepath.Join(a.SystemdDir, "ptp4l.service"),
 		filepath.Join(a.SystemdDir, "phc2sys.service"),
+		filepath.Join(a.SystemdDir, "timesync-ptp-guard.service"),
+		filepath.Join(a.SystemdDir, "timesync-ptp-guard.timer"),
 	}
 }
 

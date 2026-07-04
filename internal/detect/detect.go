@@ -37,7 +37,7 @@ type PTPInfo struct {
 }
 
 var requiredBinaries = []string{
-	"chronyc", "chronyd", "ptp4l", "phc2sys", "ethtool", "systemctl",
+	"chronyc", "chronyd", "ptp4l", "phc2sys", "phc_ctl", "pmc", "ethtool", "systemctl",
 }
 
 // Run executes full system detection.

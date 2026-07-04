@@ -8,6 +8,7 @@ import (
 )
 
 const configDir = "/etc/timesync-cli"
+const timesyncBin = "/usr/bin/timesync"
 
 // Plan generates a dry-run plan for the given apply options.
 func Plan(opts model.ApplyOptions) (*model.Plan, error) {
@@ -72,7 +73,11 @@ func planChangesAuto(plan *model.Plan, opts model.ApplyOptions) {
 	)
 
 	if opts.PTP {
-		plan.Changes = append(plan.Changes, ptpClientChanges(iface, "")...)
+		plan.Changes = append(plan.Changes, ptpMonitorChanges(iface)...)
+		disablePTPSystemClockWriters(plan)
+		plan.Warnings = append(plan.Warnings, "auto PTP mode keeps chrony as the only system clock discipline source and runs ptp4l for PTP monitoring")
+	} else {
+		disablePTPUnits(plan)
 	}
 
 	plan.Warnings = append(plan.Warnings, "auto mode will NOT enable master/grandmaster serving without explicit apply master")
@@ -106,15 +111,20 @@ func planChangesMaster(plan *model.Plan, opts model.ApplyOptions) {
 
 	if opts.PTP {
 		plan.Changes = append(plan.Changes, ptpMasterChanges(opts.Iface)...)
+		plan.DisableUnits = appendUnique(plan.DisableUnits, "timesync-ptp-guard.timer")
+	}
+	if !opts.PTP {
+		disablePTPUnits(plan)
 	}
 }
 
 func planChangesClient(plan *model.Plan, opts model.ApplyOptions) {
 	if opts.PTP {
-		plan.Changes = append(plan.Changes, ptpClientChanges(opts.Iface, opts.Source)...)
-		plan.DisableUnits = append(plan.DisableUnits, "chrony")
+		plan.Changes = append(plan.Changes, ptpClientChanges(opts.Iface, opts.Source, bootGuardRepairSystem)...)
+		disableChronyUnits(plan)
 		plan.Warnings = append(plan.Warnings, "PTP client mode disables chrony so phc2sys is the only system clock discipline source")
 	} else {
+		disablePTPUnits(plan)
 		plan.Changes = append(plan.Changes,
 			model.PlannedChange{
 				Kind:        "config",
@@ -132,7 +142,41 @@ func planChangesClient(plan *model.Plan, opts model.ApplyOptions) {
 	}
 }
 
-func ptpClientChanges(iface, source string) []model.PlannedChange {
+func disablePTPUnits(plan *model.Plan) {
+	plan.DisableUnits = appendUnique(plan.DisableUnits, "timesync-ptp-guard.timer", "phc2sys", "ptp4l")
+}
+
+func disablePTPSystemClockWriters(plan *model.Plan) {
+	plan.DisableUnits = appendUnique(plan.DisableUnits, "timesync-ptp-guard.timer", "phc2sys")
+}
+
+func disableChronyUnits(plan *model.Plan) {
+	plan.DisableUnits = appendUnique(plan.DisableUnits, "chrony", "chronyd")
+}
+
+func appendUnique(list []string, values ...string) []string {
+	seen := make(map[string]bool, len(list)+len(values))
+	for _, value := range list {
+		seen[value] = true
+	}
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		list = append(list, value)
+	}
+	return list
+}
+
+type bootGuardMode string
+
+const (
+	bootGuardRequireTrustedSystem bootGuardMode = "require-trusted-system"
+	bootGuardRepairSystem         bootGuardMode = "repair-system"
+)
+
+func ptpClientChanges(iface, source string, mode bootGuardMode) []model.PlannedChange {
 	desc := "PTP slave/ordinary clock config (ptp4l)"
 	if source != "" {
 		desc = "PTP unicast slave config targeting " + source + " (ptp4l)"
@@ -154,13 +198,42 @@ func ptpClientChanges(iface, source string) []model.PlannedChange {
 			Kind:        "systemd",
 			Path:        "/etc/systemd/system/ptp4l.service",
 			Description: "systemd unit for ptp4l",
-			Content:     renderPTP4LService(),
+			Content:     renderPTP4LService(iface, mode),
 		},
 		{
 			Kind:        "systemd",
 			Path:        "/etc/systemd/system/phc2sys.service",
 			Description: "systemd unit for phc2sys",
 			Content:     renderPHC2SysService(iface),
+		},
+		{
+			Kind:        "systemd",
+			Path:        "/etc/systemd/system/timesync-ptp-guard.service",
+			Description: "systemd guard that stops phc2sys when PTP or clock health fails",
+			Content:     renderPTPGuardService(),
+		},
+		{
+			Kind:        "systemd",
+			Path:        "/etc/systemd/system/timesync-ptp-guard.timer",
+			Description: "systemd timer for PTP runtime guard",
+			Content:     renderPTPGuardTimer(),
+		},
+	}
+}
+
+func ptpMonitorChanges(iface string) []model.PlannedChange {
+	return []model.PlannedChange{
+		{
+			Kind:        "config",
+			Path:        configDir + "/ptp4l.conf",
+			Description: "PTP ordinary clock monitor config (ptp4l)",
+			Content:     renderPTP4LClient(iface, ""),
+		},
+		{
+			Kind:        "systemd",
+			Path:        "/etc/systemd/system/ptp4l.service",
+			Description: "systemd unit for ptp4l monitor",
+			Content:     renderPTP4LService(iface, bootGuardRequireTrustedSystem),
 		},
 	}
 }
@@ -183,7 +256,7 @@ func ptpMasterChanges(iface string) []model.PlannedChange {
 			Kind:        "systemd",
 			Path:        "/etc/systemd/system/ptp4l.service",
 			Description: "systemd unit for ptp4l grandmaster",
-			Content:     renderPTP4LService(),
+			Content:     renderPTP4LService(iface, bootGuardRequireTrustedSystem),
 		},
 		{
 			Kind:        "systemd",
@@ -242,6 +315,9 @@ tx_timestamp_timeout  10
 logAnnounceInterval   0
 logSyncInterval       -3
 logMinDelayReqInterval -3
+first_step_threshold  1.0
+step_threshold        1.0
+clientOnly            1
 unicast_listen        1
 
 [unicast_master_table]
@@ -262,6 +338,9 @@ tx_timestamp_timeout  10
 logAnnounceInterval   0
 logSyncInterval       -3
 logMinDelayReqInterval -3
+first_step_threshold  1.0
+step_threshold        1.0
+clientOnly            1
 
 [%s]
 network_transport     UDPv4
@@ -308,12 +387,43 @@ After=ptp4l.service
 Requires=ptp4l.service
 
 [Service]
+ExecStartPre=/usr/bin/timesync wait-ptp --timeout 30s
 ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s %s -w -S 1.0
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 `, iface)) + "\n"
+}
+
+func renderPTPGuardService() string {
+	return strings.TrimSpace(`
+# Generated by timesync-cli
+[Unit]
+Description=Runtime PTP and clock health guard configured by timesync-cli
+After=ptp4l.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/timesync guard-ptp
+`) + "\n"
+}
+
+func renderPTPGuardTimer() string {
+	return strings.TrimSpace(`
+# Generated by timesync-cli
+[Unit]
+Description=Run timesync PTP health guard periodically
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Unit=timesync-ptp-guard.service
+
+[Install]
+WantedBy=timers.target
+`) + "\n"
 }
 
 func renderPHC2SysMasterService(iface string) string {
@@ -332,20 +442,28 @@ WantedBy=multi-user.target
 `, iface)) + "\n"
 }
 
-func renderPTP4LService() string {
-	return strings.TrimSpace(`
+func renderPTP4LService(iface string, mode bootGuardMode) string {
+	bootGuard := fmt.Sprintf("ExecStartPre=%s boot-guard --iface %s", timesyncBin, iface)
+	switch mode {
+	case bootGuardRepairSystem:
+		bootGuard += " --repair-system-clock"
+	case bootGuardRequireTrustedSystem:
+		bootGuard += " --require-trusted-system-clock"
+	}
+	return strings.TrimSpace(fmt.Sprintf(`
 [Unit]
 Description=Precision Time Protocol configured by timesync-cli
 After=network-online.target
 Wants=network-online.target
 
 [Service]
+%s
 ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-`) + "\n"
+`, bootGuard)) + "\n"
 }
 
 // FormatPlan renders a plan for CLI output.

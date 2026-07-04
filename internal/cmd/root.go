@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alexzhang1030/time-sync-cli/internal/apply"
 	"github.com/alexzhang1030/time-sync-cli/internal/detect"
+	"github.com/alexzhang1030/time-sync-cli/internal/guard"
 	"github.com/alexzhang1030/time-sync-cli/internal/model"
 	"github.com/alexzhang1030/time-sync-cli/internal/planner"
+	"github.com/alexzhang1030/time-sync-cli/internal/repair"
 	"github.com/alexzhang1030/time-sync-cli/internal/status"
 	"github.com/alexzhang1030/time-sync-cli/internal/tui"
 	"github.com/spf13/cobra"
@@ -31,6 +34,10 @@ func init() {
 	rootCmd.AddCommand(doctorCmd())
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(applyCmd())
+	rootCmd.AddCommand(bootGuardCmd())
+	rootCmd.AddCommand(guardPTPCmd())
+	rootCmd.AddCommand(waitPTPCmd())
+	rootCmd.AddCommand(repairClockCmd())
 	rootCmd.AddCommand(rollbackCmd())
 	rootCmd.AddCommand(uninstallCmd())
 	rootCmd.AddCommand(tuiCmd())
@@ -247,6 +254,133 @@ func tuiCmd() *cobra.Command {
 			return tui.Run()
 		},
 	}
+}
+
+func repairClockCmd() *cobra.Command {
+	var iface, rtcPath string
+	cmd := &cobra.Command{
+		Use:          "repair-clock",
+		Short:        "Recover system time and PHC from RTC after an epoch clock reset",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := repair.Clock(repair.Options{
+				Iface:   iface,
+				RTCPath: rtcPath,
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Clock repair completed using RTC epoch %d and interface %s.\n", result.RTCEpoch, result.Iface)
+			for _, step := range result.Steps {
+				fmt.Printf("  - %s\n", step.Command)
+			}
+			report, err := status.Collect()
+			if err != nil {
+				return err
+			}
+			fmt.Println()
+			fmt.Print(report.Summary())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&iface, "iface", "", "PTP interface; defaults to the last applied timesync interface")
+	cmd.Flags().StringVar(&rtcPath, "rtc-path", repair.DefaultRTCPath, "RTC since_epoch path")
+	return cmd
+}
+
+func bootGuardCmd() *cobra.Command {
+	var iface, rtcPath string
+	var repairSystemClock, requireTrustedSystemClock bool
+	cmd := &cobra.Command{
+		Use:          "boot-guard",
+		Short:        "Prime system time and PHC before ptp4l starts",
+		Hidden:       true,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := repair.BootGuard(repair.Options{
+				Iface:                     iface,
+				RTCPath:                   rtcPath,
+				RepairSystemClock:         repairSystemClock,
+				RequireTrustedSystemClock: requireTrustedSystemClock,
+			})
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&iface, "iface", "", "PTP interface; defaults to the last applied timesync interface")
+	cmd.Flags().StringVar(&rtcPath, "rtc-path", repair.DefaultRTCPath, "RTC since_epoch path")
+	cmd.Flags().BoolVar(&repairSystemClock, "repair-system-clock", false, "repair system clock from RTC when system time is untrusted")
+	cmd.Flags().BoolVar(&requireTrustedSystemClock, "require-trusted-system-clock", false, "fail when system time is not trusted against RTC")
+	return cmd
+}
+
+func waitPTPCmd() *cobra.Command {
+	var timeout, interval time.Duration
+	cmd := &cobra.Command{
+		Use:          "wait-ptp",
+		Short:        "Wait until PTP is healthy before phc2sys starts",
+		Hidden:       true,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if interval <= 0 {
+				interval = time.Second
+			}
+			deadline := time.Now().Add(timeout)
+			var last *status.Report
+			var lastErr error
+			for {
+				report, err := status.Collect()
+				if err == nil {
+					last = report
+					if ptpReadyForPHC2Sys(report) {
+						return nil
+					}
+				} else {
+					lastErr = err
+				}
+				if timeout <= 0 || time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(interval)
+			}
+			if last != nil {
+				return fmt.Errorf("PTP not healthy before phc2sys start: ptp=%s clock=%s configured_role=%s port_state=%s master_offset=%s",
+					last.PTPHealth,
+					last.ClockHealth,
+					last.ConfiguredRole,
+					last.PTP.PortState,
+					last.PTP.MasterOffset,
+				)
+			}
+			if lastErr != nil {
+				return fmt.Errorf("PTP health check failed before phc2sys start: %w", lastErr)
+			}
+			return fmt.Errorf("PTP health check did not run before phc2sys start")
+		},
+	}
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time to wait for healthy PTP before phc2sys starts")
+	cmd.Flags().DurationVar(&interval, "interval", time.Second, "PTP health polling interval")
+	return cmd
+}
+
+func ptpReadyForPHC2Sys(report *status.Report) bool {
+	return report != nil && report.PTPHealth == "true"
+}
+
+func guardPTPCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:          "guard-ptp",
+		Short:        "Keep phc2sys aligned with current PTP and clock health",
+		Hidden:       true,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := guard.PTPOnce(guard.Options{})
+			if result != nil && result.Action != "none" {
+				fmt.Printf("PTP runtime guard action: %s (%s)\n", result.Action, result.Reason)
+			}
+			return err
+		},
+	}
+	return cmd
 }
 
 func rollbackCmd() *cobra.Command {
