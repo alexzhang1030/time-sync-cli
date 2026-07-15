@@ -11,6 +11,7 @@ import (
 
 const (
 	maxTrustedPHCSystemSkewSec = 120
+	maxTrustedPHCResidualNS    = int64(time.Second)
 	minRTCWriteSkewSec         = 5
 )
 
@@ -142,7 +143,11 @@ func rtcWriteNeeded(report *status.Report) bool {
 	if report.Clock.SystemUnix <= 0 || report.Clock.PHCUnix <= 0 || report.Clock.RTCUnix <= 0 {
 		return false
 	}
-	if absInt64(report.Clock.SystemUnix-report.Clock.PHCUnix) > maxTrustedPHCSystemSkewSec {
+	if report.Clock.PHCResidualNS != nil {
+		if absInt64(*report.Clock.PHCResidualNS) > maxTrustedPHCResidualNS {
+			return false
+		}
+	} else if absInt64(report.Clock.SystemUnix-report.Clock.PHCUnix) > maxTrustedPHCSystemSkewSec {
 		return false
 	}
 	return absInt64(report.Clock.SystemUnix-report.Clock.RTCUnix) > minRTCWriteSkewSec

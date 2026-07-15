@@ -93,6 +93,7 @@ func TestPTPOnceStartsPHC2SysWhenPTPHealthyAndClockUnhealthy(t *testing.T) {
 func TestPTPOnceSyncsRTCWhenPTPAndSystemClockAreTrusted(t *testing.T) {
 	runner := &fakeRunner{}
 	rtc := &fakeRTCWriter{}
+	residual := int64(0)
 	result, err := PTPOnce(Options{
 		Runner:    runner,
 		RTCWriter: rtc,
@@ -106,9 +107,10 @@ func TestPTPOnceSyncsRTCWhenPTPAndSystemClockAreTrusted(t *testing.T) {
 					MasterOffset:  "42",
 				},
 				Clock: status.ClockStatus{
-					SystemUnix: 1783162152,
-					RTCUnix:    1783150000,
-					PHCUnix:    1783162189,
+					SystemUnix:    1783162152,
+					RTCUnix:       1783150000,
+					PHCUnix:       1783162189,
+					PHCResidualNS: &residual,
 				},
 			}), nil
 		},
@@ -124,6 +126,37 @@ func TestPTPOnceSyncsRTCWhenPTPAndSystemClockAreTrusted(t *testing.T) {
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("commands = %#v, want none", runner.commands)
+	}
+}
+
+func TestPTPOnceSkipsRTCSyncWhenNormalizedPHCResidualIsLarge(t *testing.T) {
+	rtc := &fakeRTCWriter{}
+	residual := int64(2 * time.Second)
+	result, err := PTPOnce(Options{
+		Runner:    &fakeRunner{},
+		RTCWriter: rtc,
+		Collect: func() (*status.Report, error) {
+			return configuredPTPClientReport(&status.Report{
+				PTPHealth: "true",
+				PTP: status.PTPStatus{
+					PHC2SysActive: true,
+					PortState:     "SLAVE",
+					MasterOffset:  "42",
+				},
+				Clock: status.ClockStatus{
+					SystemUnix:    1783162152,
+					RTCUnix:       1783150000,
+					PHCUnix:       1783162189,
+					PHCResidualNS: &residual,
+				},
+			}), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "none" || len(rtc.writes) != 0 {
+		t.Fatalf("result = %+v writes=%v", result, rtc.writes)
 	}
 }
 

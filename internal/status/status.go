@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,141 +15,163 @@ import (
 )
 
 const (
-	maxHealthyPTPOffsetNs = 1_000_000_000
-	minTrustedClockEpoch  = 946684800
-	maxHealthyRTCSkewSec  = 3600
-	maxHealthyPHCSkewSec  = 120
+	statusSchemaVersion  = "1.2"
+	minTrustedClockEpoch = 946684800
 )
+
+// HealthState is the machine-readable state used by the v1.2 status model.
+type HealthState string
+
+const (
+	HealthHealthy       HealthState = "healthy"
+	HealthDegraded      HealthState = "degraded"
+	HealthUnhealthy     HealthState = "unhealthy"
+	HealthUnknown       HealthState = "unknown"
+	HealthDisabled      HealthState = "disabled"
+	HealthInactive      HealthState = "inactive"
+	HealthNotApplicable HealthState = "not_applicable"
+	HealthUnmanaged     HealthState = "unmanaged"
+)
+
+// HealthSummary separates service/link state from accuracy and clock discipline.
+type HealthSummary struct {
+	Overall     HealthState `json:"overall" yaml:"overall"`
+	NTP         HealthState `json:"ntp" yaml:"ntp"`
+	PTPLink     HealthState `json:"ptp_link" yaml:"ptp_link"`
+	PTPAccuracy HealthState `json:"ptp_accuracy" yaml:"ptp_accuracy"`
+	Clock       HealthState `json:"clock" yaml:"clock"`
+	Discipline  HealthState `json:"discipline" yaml:"discipline"`
+	Guard       HealthState `json:"guard" yaml:"guard"`
+}
 
 // Report holds read-only status from system time services.
 type Report struct {
-	Chrony         ChronyStatus  `json:"chrony" yaml:"chrony"`
-	PTP            PTPStatus     `json:"ptp" yaml:"ptp"`
-	Clock          ClockStatus   `json:"clock" yaml:"clock"`
-	Systemd        SystemdStatus `json:"systemd" yaml:"systemd"`
-	Role           string        `json:"role" yaml:"role"`
-	ConfiguredRole string        `json:"configured_role" yaml:"configured_role"`
-	ConfiguredPTP  bool          `json:"configured_ptp" yaml:"configured_ptp"`
-	Source         string        `json:"source" yaml:"source"`
-	Offset         string        `json:"offset" yaml:"offset"`
-	Healthy        bool          `json:"healthy" yaml:"healthy"`
-	NTPHealth      bool          `json:"ntp_health" yaml:"ntp_health"`
-	PTPHealth      string        `json:"ptp_health" yaml:"ptp_health"`
-	ClockHealth    string        `json:"clock_health" yaml:"clock_health"`
+	SchemaVersion     string        `json:"schema_version" yaml:"schema_version"`
+	Health            HealthSummary `json:"health" yaml:"health"`
+	Chrony            ChronyStatus  `json:"chrony" yaml:"chrony"`
+	PTP               PTPStatus     `json:"ptp" yaml:"ptp"`
+	Clock             ClockStatus   `json:"clock" yaml:"clock"`
+	Systemd           SystemdStatus `json:"systemd" yaml:"systemd"`
+	Role              string        `json:"role" yaml:"role"`
+	ConfiguredRole    string        `json:"configured_role" yaml:"configured_role"`
+	ConfiguredPTP     bool          `json:"configured_ptp" yaml:"configured_ptp"`
+	Source            string        `json:"source" yaml:"source"`
+	Offset            string        `json:"offset" yaml:"offset"`
+	Healthy           bool          `json:"healthy" yaml:"healthy"`
+	NTPHealth         bool          `json:"ntp_health" yaml:"ntp_health"`
+	PTPHealth         string        `json:"ptp_health" yaml:"ptp_health"`
+	ClockHealth       string        `json:"clock_health" yaml:"clock_health"`
+	SystemClockSource string        `json:"system_clock_source" yaml:"system_clock_source"`
+	ClockFlow         string        `json:"clock_flow" yaml:"clock_flow"`
+	Warnings          []string      `json:"warnings,omitempty" yaml:"warnings,omitempty"`
 }
 
 // ChronyStatus from chronyc tracking/sources.
 type ChronyStatus struct {
-	Active   bool   `json:"active" yaml:"active"`
-	Tracking string `json:"tracking" yaml:"tracking"`
-	Source   string `json:"source" yaml:"source"`
-	Offset   string `json:"offset" yaml:"offset"`
+	Active       bool    `json:"active" yaml:"active"`
+	UnitState    string  `json:"unit_state" yaml:"unit_state"`
+	Available    bool    `json:"available" yaml:"available"`
+	Synchronized bool    `json:"synchronized" yaml:"synchronized"`
+	Holdover     bool    `json:"holdover" yaml:"holdover"`
+	Tracking     string  `json:"tracking" yaml:"tracking"`
+	ReferenceID  string  `json:"reference_id" yaml:"reference_id"`
+	Source       string  `json:"source" yaml:"source"`
+	Stratum      int     `json:"stratum" yaml:"stratum"`
+	RefTimeUnix  float64 `json:"ref_time_unix" yaml:"ref_time_unix"`
+	Offset       string  `json:"offset" yaml:"offset"`
+	LastOffset   string  `json:"last_offset" yaml:"last_offset"`
+	RMSOffset    string  `json:"rms_offset" yaml:"rms_offset"`
+	SkewPPM      string  `json:"skew_ppm" yaml:"skew_ppm"`
+	LeapStatus   string  `json:"leap_status" yaml:"leap_status"`
+	Detail       string  `json:"detail,omitempty" yaml:"detail,omitempty"`
 }
 
 // PTPStatus from ptp4l/phc2sys via pmc queries.
 type PTPStatus struct {
-	PTP4LActive      bool   `json:"ptp4l_active" yaml:"ptp4l_active"`
-	PHC2SysActive    bool   `json:"phc2sys_active" yaml:"phc2sys_active"`
-	Available        bool   `json:"available" yaml:"available"`
-	Detail           string `json:"detail,omitempty" yaml:"detail,omitempty"`
-	PortState        string `json:"port_state" yaml:"port_state"`
-	MasterOffset     string `json:"master_offset" yaml:"master_offset"`
-	OffsetFromMaster string `json:"offset_from_master" yaml:"offset_from_master"`
-	PathDelay        string `json:"path_delay" yaml:"path_delay"`
-	StepsRemoved     string `json:"steps_removed" yaml:"steps_removed"`
-	GMIdentity       string `json:"gm_identity" yaml:"gm_identity"`
+	PTP4LActive             bool   `json:"ptp4l_active" yaml:"ptp4l_active"`
+	PHC2SysActive           bool   `json:"phc2sys_active" yaml:"phc2sys_active"`
+	PTP4LState              string `json:"ptp4l_state" yaml:"ptp4l_state"`
+	PHC2SysState            string `json:"phc2sys_state" yaml:"phc2sys_state"`
+	Available               bool   `json:"available" yaml:"available"`
+	Detail                  string `json:"detail,omitempty" yaml:"detail,omitempty"`
+	PortState               string `json:"port_state" yaml:"port_state"`
+	MasterOffset            string `json:"master_offset" yaml:"master_offset"`
+	OffsetFromMaster        string `json:"offset_from_master" yaml:"offset_from_master"`
+	PathDelay               string `json:"path_delay" yaml:"path_delay"`
+	StepsRemoved            string `json:"steps_removed" yaml:"steps_removed"`
+	GMIdentity              string `json:"gm_identity" yaml:"gm_identity"`
+	TimePropertiesAvailable bool   `json:"time_properties_available" yaml:"time_properties_available"`
+	CurrentUTCOffset        int    `json:"current_utc_offset" yaml:"current_utc_offset"`
+	CurrentUTCOffsetValid   bool   `json:"current_utc_offset_valid" yaml:"current_utc_offset_valid"`
+	PTPTimescale            bool   `json:"ptp_timescale" yaml:"ptp_timescale"`
+	TimeTraceable           bool   `json:"time_traceable" yaml:"time_traceable"`
+	FrequencyTraceable      bool   `json:"frequency_traceable" yaml:"frequency_traceable"`
+	TimePropertiesDetail    string `json:"time_properties_detail,omitempty" yaml:"time_properties_detail,omitempty"`
 }
 
 // ClockStatus reports wall-clock, RTC, and PHC consistency.
 type ClockStatus struct {
-	SystemUnix    int64  `json:"system_unix" yaml:"system_unix"`
-	RTCUnix       int64  `json:"rtc_unix" yaml:"rtc_unix"`
-	PHCUnix       int64  `json:"phc_unix" yaml:"phc_unix"`
-	Iface         string `json:"iface" yaml:"iface"`
-	RTCSystemSkew string `json:"rtc_system_skew" yaml:"rtc_system_skew"`
-	PHCSystemSkew string `json:"phc_system_skew" yaml:"phc_system_skew"`
+	SystemUnix            int64  `json:"system_unix" yaml:"system_unix"`
+	RTCUnix               int64  `json:"rtc_unix" yaml:"rtc_unix"`
+	PHCUnix               int64  `json:"phc_unix" yaml:"phc_unix"`
+	Iface                 string `json:"iface" yaml:"iface"`
+	RTCSystemSkew         string `json:"rtc_system_skew" yaml:"rtc_system_skew"`
+	PHCSystemSkew         string `json:"phc_system_skew" yaml:"phc_system_skew"`
+	PHCResidualNS         *int64 `json:"phc_residual_ns,omitempty" yaml:"phc_residual_ns,omitempty"`
+	PHCResidual           string `json:"phc_residual" yaml:"phc_residual"`
+	PHCTimeScale          string `json:"phc_time_scale" yaml:"phc_time_scale"`
+	TAIUTCOffset          int    `json:"tai_utc_offset" yaml:"tai_utc_offset"`
+	TAIUTCOffsetValid     bool   `json:"tai_utc_offset_valid" yaml:"tai_utc_offset_valid"`
+	Resolution            string `json:"resolution" yaml:"resolution"`
+	Detail                string `json:"detail,omitempty" yaml:"detail,omitempty"`
+	phcSampleSystemUnixNS int64
+}
+
+// UnitStatus preserves the actual unit name and query outcome.
+type UnitStatus struct {
+	Unit          string `json:"unit" yaml:"unit"`
+	LoadState     string `json:"load_state" yaml:"load_state"`
+	ActiveState   string `json:"active_state" yaml:"active_state"`
+	UnitFileState string `json:"unit_file_state" yaml:"unit_file_state"`
 	Detail        string `json:"detail,omitempty" yaml:"detail,omitempty"`
 }
 
 // SystemdStatus for relevant units.
 type SystemdStatus struct {
-	Chronyd string `json:"chronyd" yaml:"chronyd"`
-	PTP4L   string `json:"ptp4l" yaml:"ptp4l"`
-	PHC2Sys string `json:"phc2sys" yaml:"phc2sys"`
+	Chronyd     string     `json:"chronyd" yaml:"chronyd"`
+	PTP4L       string     `json:"ptp4l" yaml:"ptp4l"`
+	PHC2Sys     string     `json:"phc2sys" yaml:"phc2sys"`
+	NTPDaemon   UnitStatus `json:"ntp_daemon" yaml:"ntp_daemon"`
+	PTP4LUnit   UnitStatus `json:"ptp4l_unit" yaml:"ptp4l_unit"`
+	PHC2SysUnit UnitStatus `json:"phc2sys_unit" yaml:"phc2sys_unit"`
+	GuardTimer  UnitStatus `json:"guard_timer" yaml:"guard_timer"`
 }
 
 // Collect gathers status without mutating the system.
 func Collect() (*Report, error) {
-	r := &Report{}
+	r := &Report{SchemaVersion: statusSchemaVersion}
 	r.Systemd = collectSystemd()
-	r.Chrony = collectChrony()
-	r.PTP = collectPTP()
+	r.Chrony = collectChrony(r.Systemd.NTPDaemon)
+	r.PTP = collectPTP(r.Systemd)
 	r.ConfiguredRole, r.ConfiguredPTP = configuredState()
-	r.Clock = collectClock()
-	r.NTPHealth = r.Chrony.Active
-	r.PTPHealth = inferPTPHealth(r.PTP, r.ConfiguredRole)
-	r.ClockHealth = inferClockHealth(r.Clock)
-	r.Healthy = inferOverallHealth(r)
-	r.Role, r.Source, r.Offset = inferSyncState(r)
+	r.Clock = collectClock(r.PTP)
+	populateDerivedStatus(r)
 	return r, nil
 }
 
-func collectSystemd() SystemdStatus {
-	return SystemdStatus{
-		Chronyd: unitActiveAny("chrony", "chronyd"),
-		PTP4L:   unitActive("ptp4l"),
-		PHC2Sys: unitActive("phc2sys"),
-	}
-}
-
-func unitActiveAny(units ...string) string {
-	last := "inactive"
-	for _, unit := range units {
-		state := unitActive(unit)
-		if state == "active" {
-			return state
-		}
-		last = state
-	}
-	return last
-}
-
-func unitActive(unit string) string {
-	out, err := exec.Command("systemctl", "is-active", unit).Output()
-	if err != nil {
-		return "inactive"
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func collectChrony() ChronyStatus {
-	s := ChronyStatus{Active: unitActiveAny("chrony", "chronyd") == "active"}
-	out, err := exec.Command("chronyc", "-c", "tracking").Output()
-	if err != nil {
-		return s
-	}
-	s.Tracking = strings.TrimSpace(string(out))
-	s.Source, s.Offset = ParseChronyTracking(string(out))
-	return s
-}
-
-// ParseChronyTracking extracts reference ID and offset from chronyc -c tracking output.
-func ParseChronyTracking(line string) (source, offset string) {
-	fields := strings.Split(strings.TrimSpace(line), ",")
-	if len(fields) >= 6 {
-		source = fields[2]
-		offset = fields[5]
-	}
-	return source, offset
-}
-
-func collectPTP() PTPStatus {
+func collectPTP(systemd SystemdStatus) PTPStatus {
 	s := PTPStatus{
-		PTP4LActive:   unitActive("ptp4l") == "active",
-		PHC2SysActive: unitActive("phc2sys") == "active",
+		PTP4LActive:   systemd.PTP4LUnit.ActiveState == "active",
+		PHC2SysActive: systemd.PHC2SysUnit.ActiveState == "active",
+		PTP4LState:    systemd.PTP4LUnit.ActiveState,
+		PHC2SysState:  systemd.PHC2SysUnit.ActiveState,
 	}
 	if !s.PTP4LActive {
-		s.Detail = "ptp4l not running"
+		if s.PTP4LState == "query-error" {
+			s.Detail = valueOr(systemd.PTP4LUnit.Detail, "unable to query ptp4l service")
+		} else {
+			s.Detail = "ptp4l not running"
+		}
 		return s
 	}
 	portOut, err := pmcQuery("PORT_DATA_SET")
@@ -158,8 +179,11 @@ func collectPTP() PTPStatus {
 		s.Detail = "unable to query ptp4l via pmc: " + err.Error()
 		return s
 	}
-	timeOut, _ := pmcQuery("TIME_STATUS_NP")
-	currentOut, _ := pmcQuery("CURRENT_DATA_SET")
+	timeOut, timeErr := pmcQuery("TIME_STATUS_NP")
+	currentOut, currentErr := pmcQuery("CURRENT_DATA_SET")
+	if timeErr != nil && currentErr != nil {
+		s.Detail = "PTP offset metrics unavailable: " + timeErr.Error()
+	}
 	metrics := ParsePTPMetrics(portOut, timeOut, currentOut)
 
 	s.Available = true
@@ -169,11 +193,32 @@ func collectPTP() PTPStatus {
 	s.PathDelay = metrics.PathDelay
 	s.StepsRemoved = metrics.StepsRemoved
 	s.GMIdentity = metrics.GMIdentity
+
+	propertiesOut, err := pmcQuery("TIME_PROPERTIES_DATA_SET")
+	if err != nil {
+		s.TimePropertiesDetail = "unable to query PTP time properties: " + err.Error()
+		return s
+	}
+	properties, err := ParsePTPTimeProperties(propertiesOut)
+	if err != nil {
+		s.TimePropertiesDetail = "unable to parse PTP time properties: " + err.Error()
+		return s
+	}
+	s.TimePropertiesAvailable = true
+	s.CurrentUTCOffset = properties.CurrentUTCOffset
+	s.CurrentUTCOffsetValid = properties.CurrentUTCOffsetValid
+	s.PTPTimescale = properties.PTPTimescale
+	s.TimeTraceable = properties.TimeTraceable
+	s.FrequencyTraceable = properties.FrequencyTraceable
 	return s
 }
 
-func collectClock() ClockStatus {
-	s := ClockStatus{SystemUnix: time.Now().Unix()}
+func collectClock(ptp PTPStatus) ClockStatus {
+	now := time.Now()
+	s := ClockStatus{
+		SystemUnix: now.Unix(),
+		Resolution: "PHC residual uses nanosecond samples; RTC snapshot has 1 s resolution",
+	}
 	rtc, err := readEpochFile("/sys/class/rtc/rtc0/since_epoch")
 	if err != nil {
 		s.Detail = "unable to read RTC: " + err.Error()
@@ -187,18 +232,23 @@ func collectClock() ClockStatus {
 		s.Iface = strings.TrimSpace(state.Iface)
 	}
 	if s.Iface != "" {
+		before := time.Now()
 		out, err := exec.Command("phc_ctl", s.Iface, "get").CombinedOutput()
+		after := time.Now()
 		if err != nil {
 			detail := "unable to read PHC: " + strings.TrimSpace(string(out))
 			if os.Geteuid() != 0 {
 				detail += "; try sudo timesync status"
 			}
 			appendClockDetail(&s, detail)
-		} else if phc, err := parsePHCTime(string(out)); err != nil {
+		} else if phcNS, err := parsePHCTimeNS(string(out)); err != nil {
 			appendClockDetail(&s, "unable to parse PHC: "+err.Error())
 		} else {
-			s.PHCUnix = phc
-			s.PHCSystemSkew = formatSeconds(s.SystemUnix - s.PHCUnix)
+			s.PHCUnix = phcNS / int64(time.Second)
+			s.phcSampleSystemUnixNS = before.UnixNano() + after.Sub(before).Nanoseconds()/2
+			rawSkewNS := s.phcSampleSystemUnixNS - phcNS
+			s.PHCSystemSkew = formatSeconds(int64(time.Duration(rawSkewNS).Round(time.Second) / time.Second))
+			populatePHCResidual(&s, ptp, phcNS)
 		}
 	}
 	return s
@@ -221,6 +271,11 @@ func readEpochFile(path string) (int64, error) {
 }
 
 func parsePHCTime(output string) (int64, error) {
+	value, err := parsePHCTimeNS(output)
+	return value / int64(time.Second), err
+}
+
+func parsePHCTimeNS(output string) (int64, error) {
 	const marker = "clock time is "
 	idx := strings.Index(output, marker)
 	if idx < 0 {
@@ -231,11 +286,24 @@ func parsePHCTime(output string) (int64, error) {
 	if len(fields) == 0 {
 		return 0, fmt.Errorf("missing clock value")
 	}
-	value, err := strconv.ParseFloat(fields[0], 64)
+	parts := strings.SplitN(fields[0], ".", 2)
+	seconds, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
 		return 0, err
 	}
-	return int64(value), nil
+	fraction := ""
+	if len(parts) == 2 {
+		fraction = parts[1]
+	}
+	if len(fraction) > 9 {
+		fraction = fraction[:9]
+	}
+	fraction += strings.Repeat("0", 9-len(fraction))
+	nanoseconds, err := strconv.ParseInt(fraction, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return seconds*int64(time.Second) + nanoseconds, nil
 }
 
 func pmcQuery(dataSet string) (string, error) {
@@ -322,119 +390,6 @@ func configuredState() (string, bool) {
 		return "", false
 	}
 	return string(state.Role), state.PTP
-}
-
-func inferSyncState(r *Report) (role, source, offset string) {
-	if r.Chrony.Active {
-		role = "ntp"
-		source = r.Chrony.Source
-		offset = withUnit(r.Chrony.Offset, "s")
-	}
-	if r.PTPHealth == "true" && r.PTP.PHC2SysActive {
-		role = "ptp"
-		switch {
-		case r.PTP.PortState != "":
-			source = r.PTP.PortState
-		case r.PTP.GMIdentity != "":
-			source = r.PTP.GMIdentity
-		default:
-			source = "ptp4l"
-		}
-		metrics := PTPMetrics{
-			MasterOffset:     r.PTP.MasterOffset,
-			OffsetFromMaster: r.PTP.OffsetFromMaster,
-		}
-		offset = metrics.PTPOffset()
-	}
-	if role == "" {
-		role = "unknown"
-	}
-	return role, source, offset
-}
-
-func inferPTPHealth(s PTPStatus, configuredRole string) string {
-	if !s.PTP4LActive && !s.PHC2SysActive {
-		return "false"
-	}
-	if !s.Available {
-		return "unknown"
-	}
-	switch strings.ToUpper(s.PortState) {
-	case "MASTER", "SLAVE":
-		if strings.EqualFold(configuredRole, "client") && strings.EqualFold(s.PortState, "MASTER") {
-			return "false"
-		}
-		if strings.EqualFold(configuredRole, "master") {
-			if strings.EqualFold(s.PortState, "MASTER") {
-				return "true"
-			}
-			return "false"
-		}
-		offsetOK, offsetKnown := ptpOffsetWithinThreshold(s)
-		if !offsetKnown {
-			return "unknown"
-		}
-		if !offsetOK {
-			return "false"
-		}
-		return "true"
-	case "":
-		return "unknown"
-	default:
-		return "false"
-	}
-}
-
-func inferClockHealth(s ClockStatus) string {
-	if s.SystemUnix > 0 && s.SystemUnix < minTrustedClockEpoch {
-		return "false"
-	}
-	if s.RTCUnix > 0 {
-		if s.RTCUnix < minTrustedClockEpoch {
-			return "false"
-		}
-		if s.SystemUnix > 0 && absInt64(s.SystemUnix-s.RTCUnix) > maxHealthyRTCSkewSec {
-			return "false"
-		}
-	}
-	if s.PHCUnix > 0 && s.SystemUnix > 0 && absInt64(s.SystemUnix-s.PHCUnix) > maxHealthyPHCSkewSec {
-		return "false"
-	}
-	if s.Detail != "" {
-		return "unknown"
-	}
-	return "true"
-}
-
-func inferOverallHealth(r *Report) bool {
-	if r.ClockHealth != "true" {
-		return false
-	}
-	if r.ConfiguredPTP && (strings.EqualFold(r.ConfiguredRole, "client") || strings.EqualFold(r.ConfiguredRole, "master")) {
-		return r.PTPHealth == "true" && r.PTP.PHC2SysActive
-	}
-	if r.NTPHealth {
-		return true
-	}
-	if r.PTPHealth == "true" {
-		return r.PTP.PHC2SysActive
-	}
-	return false
-}
-
-func ptpOffsetWithinThreshold(s PTPStatus) (ok bool, known bool) {
-	for _, value := range []string{s.MasterOffset, s.OffsetFromMaster} {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		offset, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			continue
-		}
-		return math.Abs(offset) <= maxHealthyPTPOffsetNs, true
-	}
-	return false, false
 }
 
 func absInt64(value int64) int64 {

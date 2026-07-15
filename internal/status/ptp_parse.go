@@ -36,6 +36,15 @@ type PTPMetrics struct {
 	GMIdentity       string
 }
 
+// PTPTimeProperties contains the time-scale metadata announced by ptp4l.
+type PTPTimeProperties struct {
+	CurrentUTCOffset      int
+	CurrentUTCOffsetValid bool
+	PTPTimescale          bool
+	TimeTraceable         bool
+	FrequencyTraceable    bool
+}
+
 // ParsePTPMetrics merges fields from PORT_DATA_SET, TIME_STATUS_NP, and CURRENT_DATA_SET.
 func ParsePTPMetrics(portDataSet, timeStatusNP, currentDataSet string) PTPMetrics {
 	port := ParsePMCFields(portDataSet)
@@ -48,6 +57,37 @@ func ParsePTPMetrics(portDataSet, timeStatusNP, currentDataSet string) PTPMetric
 		PathDelay:        current["meanPathDelay"],
 		StepsRemoved:     current["stepsRemoved"],
 		GMIdentity:       timeNP["gmIdentity"],
+	}
+}
+
+// ParsePTPTimeProperties parses TIME_PROPERTIES_DATA_SET. phc2sys uses the
+// same currentUtcOffset value to translate between the PTP and UTC time scales.
+// Source: https://www.linuxptp.org/documentation/phc2sys/#time-scale-usage
+func ParsePTPTimeProperties(output string) (PTPTimeProperties, error) {
+	fields := ParsePMCFields(output)
+	offsetValue, ok := fields["currentUtcOffset"]
+	if !ok {
+		return PTPTimeProperties{}, fmt.Errorf("missing currentUtcOffset")
+	}
+	offset, err := strconv.Atoi(strings.TrimSpace(offsetValue))
+	if err != nil {
+		return PTPTimeProperties{}, fmt.Errorf("parse currentUtcOffset %q: %w", offsetValue, err)
+	}
+	return PTPTimeProperties{
+		CurrentUTCOffset:      offset,
+		CurrentUTCOffsetValid: parsePMCBool(fields["currentUtcOffsetValid"]),
+		PTPTimescale:          parsePMCBool(fields["ptpTimescale"]),
+		TimeTraceable:         parsePMCBool(fields["timeTraceable"]),
+		FrequencyTraceable:    parsePMCBool(fields["frequencyTraceable"]),
+	}, nil
+}
+
+func parsePMCBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
 	}
 }
 

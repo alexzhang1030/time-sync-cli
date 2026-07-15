@@ -7,13 +7,49 @@ import (
 )
 
 func TestParseChronyTracking(t *testing.T) {
-	line := "^,192.168.1.1,1.2.3.4,1,0.000123,0.000456,0.001"
+	line := "C0A80101,192.168.1.1,3,1784102400.123456789,0.000123,-0.000456,0.001,3.225,-0.000,0.129,0.013639022,0.001100737,64.2,Normal"
 	source, offset := status.ParseChronyTracking(line)
-	if source != "1.2.3.4" {
-		t.Errorf("source = %q, want 1.2.3.4", source)
+	if source != "192.168.1.1" {
+		t.Errorf("source = %q, want 192.168.1.1", source)
 	}
-	if offset != "0.000456" {
-		t.Errorf("offset = %q, want 0.000456", offset)
+	if offset != "0.000123" {
+		t.Errorf("offset = %q, want current correction 0.000123", offset)
+	}
+}
+
+func TestParseChronyTrackingStatus(t *testing.T) {
+	line := "C0A80101,192.168.1.1,3,1784102400.123456789,0.000123,-0.000456,0.001,3.225,-0.000,0.129,0.013639022,0.001100737,64.2,Normal"
+	got, err := status.ParseChronyTrackingStatus(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Available || !got.Synchronized || got.Holdover {
+		t.Fatalf("tracking state = %+v", got)
+	}
+	if got.ReferenceID != "C0A80101" || got.Stratum != 3 || got.LeapStatus != "Normal" {
+		t.Fatalf("tracking fields = %+v", got)
+	}
+}
+
+func TestParseChronyTrackingStatusDetectsHoldover(t *testing.T) {
+	line := "7F7F0101,LOCAL,8,1784102400.123456789,0.000123,-0.000456,0.001,3.225,-0.000,0.129,0.013639022,0.001100737,64.2,Normal"
+	got, err := status.ParseChronyTrackingStatus(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Holdover || got.Synchronized {
+		t.Fatalf("tracking state = %+v", got)
+	}
+}
+
+func TestParseChronyTrackingStatusDetectsUnsynchronized(t *testing.T) {
+	line := "00000000,0.0.0.0,0,0.000000000,0.000000,0.000000,0.000,0.000,0.000,0.000,0.000000000,0.000000000,0.0,Not synchronised"
+	got, err := status.ParseChronyTrackingStatus(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Synchronized {
+		t.Fatalf("tracking state = %+v", got)
 	}
 }
 
@@ -70,6 +106,22 @@ func TestParsePTPMetrics_FallbackOffset(t *testing.T) {
 	m := status.ParsePTPMetrics("", "", "offsetFromMaster        -15.0")
 	if m.PTPOffset() != "-0.000015 ms" {
 		t.Errorf("PTPOffset() = %q, want -0.000015 ms", m.PTPOffset())
+	}
+}
+
+func TestParsePTPTimeProperties(t *testing.T) {
+	properties, err := status.ParsePTPTimeProperties(`
+currentUtcOffset       37
+currentUtcOffsetValid  1
+ptpTimescale           1
+timeTraceable          1
+frequencyTraceable     0
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if properties.CurrentUTCOffset != 37 || !properties.CurrentUTCOffsetValid || !properties.PTPTimescale || !properties.TimeTraceable || properties.FrequencyTraceable {
+		t.Fatalf("properties = %+v", properties)
 	}
 }
 
