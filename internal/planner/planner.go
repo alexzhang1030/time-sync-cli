@@ -449,11 +449,12 @@ Requires=ptp4l.service
 
 [Service]
 ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c %s -w -S 1.0
+ExecStartPost=%s publish-gm-time-properties --timeout 30s
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-`, iface)) + "\n"
+`, iface, timesyncBin)) + "\n"
 }
 
 func renderPTP4LMasterService(iface string) string {
@@ -467,13 +468,12 @@ StartLimitIntervalSec=0
 [Service]
 ExecStartPre=%s boot-guard --iface %s --repair-system-clock
 ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf
-ExecStartPost=%s publish-gm-time-properties --timeout 30s
 Restart=on-failure
 RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-`, timesyncBin, iface, timesyncBin)) + "\n"
+`, timesyncBin, iface)) + "\n"
 }
 
 func renderPTP4LService(iface string, mode bootGuardMode) string {

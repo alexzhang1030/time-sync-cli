@@ -85,7 +85,7 @@ sudo pmc -u -b 0 'GET GRANDMASTER_SETTINGS_NP'
 sudo timesync status
 ```
 
-Require `currentUtcOffset 37`, `currentUtcOffsetValid 1`, and `ptpTimescale 1` in the management response. The generated `ptp4l.service` republishes and verifies these properties after every start.
+Require `currentUtcOffset 37`, `currentUtcOffsetValid 1`, and `ptpTimescale 1` in the management response. The generated `phc2sys.service` publishes these properties after the PHC reaches PTP time scale, and the runtime guard restores them after a later `ptp4l` restart.
 
 ## Verify
 

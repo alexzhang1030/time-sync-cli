@@ -401,6 +401,7 @@ func publishGMTimePropertiesCmd() *cobra.Command {
 			}
 			result, err := gm.Publish(gm.Options{
 				ConfigPath: configPath,
+				Iface:      state.Iface,
 				Timeout:    timeout,
 				Interval:   interval,
 			})

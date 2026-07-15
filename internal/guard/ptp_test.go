@@ -34,6 +34,45 @@ func configuredPTPClientReport(r *status.Report) *status.Report {
 	return r
 }
 
+func configuredPTPMasterReport(r *status.Report) *status.Report {
+	r.ConfiguredRole = "master"
+	r.ConfiguredPTP = true
+	return r
+}
+
+func TestPTPOnceRepublishesInvalidGrandmasterTimeProperties(t *testing.T) {
+	publishedIface := ""
+	result, err := PTPOnce(Options{
+		Runner: &fakeRunner{},
+		Collect: func() (*status.Report, error) {
+			return configuredPTPMasterReport(&status.Report{
+				PTPHealth: "true",
+				PTP: status.PTPStatus{
+					PTP4LActive:             true,
+					PHC2SysActive:           true,
+					PortState:               "MASTER",
+					TimePropertiesAvailable: true,
+					CurrentUTCOffsetValid:   false,
+				},
+				Clock: status.ClockStatus{Iface: "eth0"},
+			}), nil
+		},
+		PublishGM: func(iface string) error {
+			publishedIface = iface
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publishedIface != "eth0" {
+		t.Fatalf("published iface = %q, want eth0", publishedIface)
+	}
+	if result.Action != "publish gm time properties" {
+		t.Fatalf("Action = %q, want publish gm time properties", result.Action)
+	}
+}
+
 func TestPTPOnceStartsPHC2SysWhenHealthy(t *testing.T) {
 	runner := &fakeRunner{}
 	result, err := PTPOnce(Options{

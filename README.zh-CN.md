@@ -109,7 +109,7 @@ sudo timesync apply master --iface <master-iface> --ptp \
 timesync doctor   # 查看各网卡 PTP 能力
 ```
 
-生成的 Grandmaster 会声明当前 TAI–UTC 偏移、保守的未知时钟精度（`0xFE`）以及 NTP 来源类型。每次 `ptp4l` 启动后，`timesync` 都会通过管理套接字发布 `currentUtcOffsetValid=1`，回读验证成功后服务进入 active。
+生成的 Grandmaster 会声明当前 TAI–UTC 偏移、保守的未知时钟精度（`0xFE`）以及 NTP 来源类型。`phc2sys` 把 PHC 校准到 `System + TAI–UTC` 后，`timesync` 会通过管理套接字发布 `currentUtcOffsetValid=1` 并回读验证。后续 `ptp4l` 重启时，运行中守卫会重新发布该数据。
 
 已配置 master 角色的主机升级后，先读取当前网卡和 NTP 参数：
 
@@ -241,7 +241,7 @@ PTP client 和 master 角色会把这条恢复链路写入 `ptp4l.service`：
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
 ```
 
-PTP master 角色会在授时前通过 RTC 修复陈旧系统时间，并在 `ptp4l` 启动后发布已验证的 GM 时间属性：
+PTP master 角色会在授时前通过 RTC 修复陈旧系统时间，并在 `phc2sys` 校准 PHC 后发布已验证的 GM 时间属性：
 
 ```ini
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock

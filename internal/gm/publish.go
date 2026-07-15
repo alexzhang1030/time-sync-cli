@@ -14,6 +14,8 @@ import (
 
 const DefaultConfigPath = "/etc/timesync-cli/ptp4l.conf"
 
+const maxPHCTAIResidual = time.Second
+
 // Runner executes linuxptp management commands.
 type Runner interface {
 	Run(name string, args ...string) ([]byte, error)
@@ -29,6 +31,7 @@ func (execRunner) Run(name string, args ...string) ([]byte, error) {
 type Options struct {
 	Runner     Runner
 	ConfigPath string
+	Iface      string
 	Timeout    time.Duration
 	Interval   time.Duration
 }
@@ -53,6 +56,10 @@ func Publish(opts Options) (*Result, error) {
 	if runner == nil {
 		runner = execRunner{}
 	}
+	iface := strings.TrimSpace(opts.Iface)
+	if iface == "" {
+		return nil, fmt.Errorf("PTP interface is required to verify the PHC time scale")
+	}
 	interval := opts.Interval
 	if interval <= 0 {
 		interval = time.Second
@@ -61,7 +68,7 @@ func Publish(opts Options) (*Result, error) {
 
 	var lastErr error
 	for {
-		if err := publishOnce(runner, offset); err == nil {
+		if err := publishOnce(runner, iface, offset); err == nil {
 			return &Result{UTCOffset: offset}, nil
 		} else {
 			lastErr = err
@@ -73,7 +80,10 @@ func Publish(opts Options) (*Result, error) {
 	}
 }
 
-func publishOnce(runner Runner, offset int) error {
+func publishOnce(runner Runner, iface string, offset int) error {
+	if err := verifyPHCTimescale(runner, iface, offset); err != nil {
+		return err
+	}
 	current, err := runPMC(runner, "GET GRANDMASTER_SETTINGS_NP")
 	if err != nil {
 		return err
@@ -100,6 +110,26 @@ func publishOnce(runner Runner, offset int) error {
 	}
 	if gotOffset != offset {
 		return fmt.Errorf("verification returned currentUtcOffset=%d, want %d", gotOffset, offset)
+	}
+	return nil
+}
+
+func verifyPHCTimescale(runner Runner, iface string, offset int) error {
+	before := time.Now()
+	out, err := runner.Run("phc_ctl", iface, "get")
+	after := time.Now()
+	if err != nil {
+		return fmt.Errorf("phc_ctl %s get: %w: %s", iface, err, strings.TrimSpace(string(out)))
+	}
+	phcNS, err := status.ParsePHCTimeNS(string(out))
+	if err != nil {
+		return fmt.Errorf("parse PHC time: %w", err)
+	}
+	systemMidpointNS := before.UnixNano() + after.Sub(before).Nanoseconds()/2
+	expectedPHCNS := systemMidpointNS + int64(offset)*int64(time.Second)
+	residual := phcNS - expectedPHCNS
+	if absInt64(residual) > int64(maxPHCTAIResidual) {
+		return fmt.Errorf("PHC TAI residual %s exceeds %s while phc2sys converges", time.Duration(residual), maxPHCTAIResidual)
 	}
 	return nil
 }
@@ -170,6 +200,13 @@ func utcOffsetFromConfig(path string) (int, error) {
 func valueOr(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
+	}
+	return value
+}
+
+func absInt64(value int64) int64 {
+	if value < 0 {
+		return -value
 	}
 	return value
 }

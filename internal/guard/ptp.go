@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexzhang1030/time-sync-cli/internal/gm"
 	"github.com/alexzhang1030/time-sync-cli/internal/status"
 )
 
@@ -36,6 +37,7 @@ type Options struct {
 	Runner    Runner
 	RTCWriter RTCWriter
 	Collect   func() (*status.Report, error)
+	PublishGM func(iface string) error
 }
 
 // Result records what the runtime guard observed and changed.
@@ -89,6 +91,20 @@ func PTPOnce(opts Options) (*Result, error) {
 		report.PTP.MasterOffset,
 	)
 
+	if shouldPublishGMTimeProperties(report) {
+		publishGM := opts.PublishGM
+		if publishGM == nil {
+			publishGM = func(iface string) error {
+				_, err := gm.Publish(gm.Options{Iface: iface})
+				return err
+			}
+		}
+		if err := publishGM(report.Clock.Iface); err != nil {
+			return result, err
+		}
+		result.Action = "publish gm time properties"
+	}
+
 	if !guardApplies(report) {
 		if report.PTP.PHC2SysActive {
 			if err := run(runner, "systemctl", "stop", "phc2sys"); err != nil {
@@ -127,6 +143,15 @@ func PTPOnce(opts Options) (*Result, error) {
 		result.Action = "hold phc2sys stopped"
 		return result, nil
 	}
+}
+
+func shouldPublishGMTimeProperties(report *status.Report) bool {
+	return report != nil &&
+		report.ConfiguredPTP &&
+		strings.EqualFold(report.ConfiguredRole, "master") &&
+		report.PTP.PTP4LActive &&
+		report.PTP.TimePropertiesAvailable &&
+		!report.PTP.CurrentUTCOffsetValid
 }
 
 func guardApplies(report *status.Report) bool {

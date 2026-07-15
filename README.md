@@ -109,7 +109,7 @@ Verify hardware timestamping first:
 timesync doctor   # check PTP capabilities per interface
 ```
 
-The generated grandmaster advertises the current TAI–UTC offset, conservative unknown clock accuracy (`0xFE`), and NTP as its source type. After every `ptp4l` start, `timesync` publishes `currentUtcOffsetValid=1` through the management socket and verifies the result before the service becomes active.
+The generated grandmaster advertises the current TAI–UTC offset, conservative unknown clock accuracy (`0xFE`), and NTP as its source type. Once `phc2sys` has aligned the PHC to `System + TAI–UTC`, `timesync` publishes `currentUtcOffsetValid=1` through the management socket and verifies the result. The runtime guard republishes the data after a later `ptp4l` restart.
 
 After upgrading a host that already has the master role, inspect the applied interface and existing NTP values:
 
@@ -241,7 +241,7 @@ PTP client and master roles install this recovery path into `ptp4l.service`:
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
 ```
 
-PTP master roles recover a stale system clock from RTC before serving and publish verified GM time properties after `ptp4l` starts:
+PTP master roles recover a stale system clock from RTC before serving and publish verified GM time properties after `phc2sys` aligns the PHC:
 
 ```ini
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock

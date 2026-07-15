@@ -278,11 +278,12 @@ func readEpochFile(path string) (int64, error) {
 }
 
 func parsePHCTime(output string) (int64, error) {
-	value, err := parsePHCTimeNS(output)
+	value, err := ParsePHCTimeNS(output)
 	return value / int64(time.Second), err
 }
 
-func parsePHCTimeNS(output string) (int64, error) {
+// ParsePHCTimeNS extracts a nanosecond epoch from phc_ctl get output.
+func ParsePHCTimeNS(output string) (int64, error) {
 	const marker = "clock time is "
 	idx := strings.Index(output, marker)
 	if idx < 0 {
@@ -311,6 +312,10 @@ func parsePHCTimeNS(output string) (int64, error) {
 		return 0, err
 	}
 	return seconds*int64(time.Second) + nanoseconds, nil
+}
+
+func parsePHCTimeNS(output string) (int64, error) {
+	return ParsePHCTimeNS(output)
 }
 
 func pmcQuery(dataSet string) (string, error) {
