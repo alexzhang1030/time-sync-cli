@@ -24,9 +24,9 @@ jobs:
             goarch: arm64
             artifact: timesync-linux-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -47,7 +47,7 @@ jobs:
           go build -ldflags "-X main.version=${VERSION}" -o "${{ matrix.artifact }}" ./cmd/timesync
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -56,14 +56,14 @@ jobs:
     needs: test-and-build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.1
         with:
           name: timesync-linux-amd64
           path: .
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6.5.0
         with:
           go-version-file: go.mod
 
@@ -89,14 +89,14 @@ jobs:
           - goarch: arm64
             artifact: timesync-linux-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.1
         with:
           name: ${{ matrix.artifact }}
           path: .
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6.5.0
         with:
           go-version-file: go.mod
 
@@ -111,7 +111,7 @@ jobs:
           packaging/build-packages.sh "$VERSION" "${{ matrix.goarch }}" "${{ matrix.artifact }}" dist/packages
 
       - name: Upload package artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: packages-${{ matrix.goarch }}
           path: dist/packages/*
@@ -123,7 +123,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.1
         with:
           path: dist
           pattern: "*"
