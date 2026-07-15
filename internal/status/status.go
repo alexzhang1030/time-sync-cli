@@ -55,6 +55,8 @@ type Report struct {
 	Role              string        `json:"role" yaml:"role"`
 	ConfiguredRole    string        `json:"configured_role" yaml:"configured_role"`
 	ConfiguredPTP     bool          `json:"configured_ptp" yaml:"configured_ptp"`
+	ManagementState   string        `json:"management_state" yaml:"management_state"`
+	ManagementDetail  string        `json:"management_detail,omitempty" yaml:"management_detail,omitempty"`
 	Source            string        `json:"source" yaml:"source"`
 	Offset            string        `json:"offset" yaml:"offset"`
 	Healthy           bool          `json:"healthy" yaml:"healthy"`
@@ -153,7 +155,7 @@ func Collect() (*Report, error) {
 	r.Systemd = collectSystemd()
 	r.Chrony = collectChrony(r.Systemd.NTPDaemon)
 	r.PTP = collectPTP(r.Systemd)
-	r.ConfiguredRole, r.ConfiguredPTP = configuredState()
+	r.ConfiguredRole, r.ConfiguredPTP, r.ManagementState, r.ManagementDetail = configuredState()
 	r.Clock = collectClock(r.PTP)
 	populateDerivedStatus(r)
 	return r, nil
@@ -384,12 +386,18 @@ func pmcPermissionHint() string {
 	return ""
 }
 
-func configuredState() (string, bool) {
+func configuredState() (role string, ptp bool, managementState, detail string) {
 	state, err := apply.LoadState("")
 	if err != nil {
-		return "", false
+		if errors.Is(err, os.ErrNotExist) {
+			return "", false, "unmanaged", ""
+		}
+		return "", false, "error", err.Error()
 	}
-	return string(state.Role), state.PTP
+	if strings.TrimSpace(string(state.Role)) == "" {
+		return "", state.PTP, "error", "state.json contains an empty role"
+	}
+	return string(state.Role), state.PTP, "managed", ""
 }
 
 func absInt64(value int64) int64 {
@@ -417,31 +425,45 @@ func withUnit(value, unit string) string {
 // Summary returns human-readable status output.
 func (r *Report) Summary() string {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "NTP health: %v\n", r.NTPHealth)
-	if r.PTPHealth != "" {
-		fmt.Fprintf(&b, "PTP health: %s\n", r.PTPHealth)
-	}
-	if r.ClockHealth != "" {
-		fmt.Fprintf(&b, "Clock health: %s\n", r.ClockHealth)
-	}
-	fmt.Fprintf(&b, "Overall health: %v\n", r.Healthy)
+	fmt.Fprintf(&b, "Status schema: %s\n", valueOr(r.SchemaVersion, statusSchemaVersion))
+	fmt.Fprintf(&b, "Overall status: %s\n", plainHealthState(reportOverallState(r)))
+	fmt.Fprintf(&b, "Management: %s\n", plainManagementState(r))
 	if r.ConfiguredRole != "" {
 		fmt.Fprintf(&b, "Configured role: %s\n", r.ConfiguredRole)
 		fmt.Fprintf(&b, "Configured PTP: %v\n", r.ConfiguredPTP)
 	}
-	fmt.Fprintf(&b, "Active role: %s\n", r.Role)
-	fmt.Fprintf(&b, "Source: %s\n", r.Source)
+	fmt.Fprintf(&b, "NTP sync status: %s\n", plainHealthState(r.Health.NTP))
+	fmt.Fprintf(&b, "PTP link status: %s\n", plainHealthState(r.Health.PTPLink))
+	fmt.Fprintf(&b, "PTP accuracy status: %s\n", plainHealthState(r.Health.PTPAccuracy))
+	fmt.Fprintf(&b, "Clock status: %s\n", plainHealthState(r.Health.Clock))
+	fmt.Fprintf(&b, "Clock discipline status: %s\n", plainHealthState(r.Health.Discipline))
+	fmt.Fprintf(&b, "Runtime guard status: %s\n", plainHealthState(r.Health.Guard))
+	fmt.Fprintf(&b, "Observed discipline: %s\n", displayValue(r.Role))
+	fmt.Fprintf(&b, "System clock source: %s\n", displayValue(r.SystemClockSource))
+	fmt.Fprintf(&b, "Clock flow: %s\n", displayValue(r.ClockFlow))
 	if r.Offset != "" {
-		fmt.Fprintf(&b, "Offset: %s\n", r.Offset)
+		fmt.Fprintf(&b, "Current offset: %s\n", r.Offset)
 	}
 	fmt.Fprintf(&b, "\nSystemd:\n")
-	fmt.Fprintf(&b, "  chronyd: %s\n", r.Systemd.Chronyd)
-	fmt.Fprintf(&b, "  ptp4l:   %s\n", r.Systemd.PTP4L)
-	fmt.Fprintf(&b, "  phc2sys: %s\n", r.Systemd.PHC2Sys)
+	fmt.Fprintf(&b, "  ntp daemon: %s\n", plainUnitStatus(r.Systemd.NTPDaemon, r.Systemd.Chronyd))
+	fmt.Fprintf(&b, "  ptp4l:      %s\n", plainUnitStatus(r.Systemd.PTP4LUnit, r.Systemd.PTP4L))
+	fmt.Fprintf(&b, "  phc2sys:    %s\n", plainUnitStatus(r.Systemd.PHC2SysUnit, r.Systemd.PHC2Sys))
+	fmt.Fprintf(&b, "  ptp guard:  %s\n", plainUnitStatus(r.Systemd.GuardTimer, "unknown"))
 	fmt.Fprintf(&b, "\nChrony:\n")
 	fmt.Fprintf(&b, "  active: %v\n", r.Chrony.Active)
+	fmt.Fprintf(&b, "  synchronized: %v\n", r.Chrony.Synchronized)
+	fmt.Fprintf(&b, "  holdover: %v\n", r.Chrony.Holdover)
+	if r.Chrony.Source != "" {
+		fmt.Fprintf(&b, "  source: %s\n", r.Chrony.Source)
+	}
+	if r.Chrony.Stratum > 0 {
+		fmt.Fprintf(&b, "  stratum: %d\n", r.Chrony.Stratum)
+	}
+	if r.Chrony.LeapStatus != "" {
+		fmt.Fprintf(&b, "  leap status: %s\n", r.Chrony.LeapStatus)
+	}
 	if r.Chrony.Offset != "" {
-		fmt.Fprintf(&b, "  ntp offset: %s\n", withUnit(r.Chrony.Offset, "s"))
+		fmt.Fprintf(&b, "  current correction: %s\n", withUnit(r.Chrony.Offset, "s"))
 	}
 	if r.Chrony.Tracking != "" {
 		fmt.Fprintf(&b, "  tracking: %s\n", r.Chrony.Tracking)
@@ -460,10 +482,22 @@ func (r *Report) Summary() string {
 		fmt.Fprintf(&b, "  phc unix:    %d\n", r.Clock.PHCUnix)
 	}
 	if r.Clock.RTCSystemSkew != "" {
-		fmt.Fprintf(&b, "  rtc-system skew: %s\n", r.Clock.RTCSystemSkew)
+		fmt.Fprintf(&b, "  rtc-system skew: %s (1 s snapshot)\n", r.Clock.RTCSystemSkew)
 	}
 	if r.Clock.PHCSystemSkew != "" {
-		fmt.Fprintf(&b, "  phc-system skew: %s\n", r.Clock.PHCSystemSkew)
+		fmt.Fprintf(&b, "  phc-system raw difference: %s\n", r.Clock.PHCSystemSkew)
+	}
+	if r.Clock.PHCTimeScale != "" {
+		fmt.Fprintf(&b, "  phc time scale: %s\n", r.Clock.PHCTimeScale)
+	}
+	if r.Clock.TAIUTCOffsetValid {
+		fmt.Fprintf(&b, "  TAI-UTC offset: %+d s\n", r.Clock.TAIUTCOffset)
+	}
+	if r.Clock.PHCResidual != "" {
+		fmt.Fprintf(&b, "  phc residual (System - PHC UTC): %s\n", r.Clock.PHCResidual)
+	}
+	if r.Clock.Resolution != "" {
+		fmt.Fprintf(&b, "  resolution: %s\n", r.Clock.Resolution)
 	}
 	if r.Clock.Detail != "" {
 		fmt.Fprintf(&b, "  (%s)\n", r.Clock.Detail)
@@ -480,7 +514,7 @@ func (r *Report) Summary() string {
 			OffsetFromMaster: r.PTP.OffsetFromMaster,
 		}
 		if ptpOffset := metrics.PTPOffset(); ptpOffset != "" {
-			fmt.Fprintf(&b, "  ptp offset: %s\n", ptpOffset)
+			fmt.Fprintf(&b, "  grandmaster offset: %s\n", ptpOffset)
 		}
 		if r.PTP.MasterOffset != "" {
 			fmt.Fprintf(&b, "  master offset: %s\n", formatPTPNanoseconds(r.PTP.MasterOffset))
@@ -488,10 +522,10 @@ func (r *Report) Summary() string {
 			fmt.Fprintf(&b, "  offset from master: %s\n", formatPTPNanoseconds(r.PTP.OffsetFromMaster))
 		}
 		if r.PTP.PathDelay != "" {
-			fmt.Fprintf(&b, "  path delay: %s\n", formatPTPNanoseconds(r.PTP.PathDelay))
+			fmt.Fprintf(&b, "  mean path delay: %s\n", formatPTPNanoseconds(r.PTP.PathDelay))
 		}
 		if r.PTP.StepsRemoved != "" {
-			fmt.Fprintf(&b, "  steps removed: %s\n", r.PTP.StepsRemoved)
+			fmt.Fprintf(&b, "  grandmaster hops: %s\n", r.PTP.StepsRemoved)
 		}
 		if r.PTP.GMIdentity != "" {
 			fmt.Fprintf(&b, "  grandmaster: %s\n", r.PTP.GMIdentity)
@@ -499,5 +533,46 @@ func (r *Report) Summary() string {
 	} else if r.PTP.Detail != "" {
 		fmt.Fprintf(&b, "  (%s)\n", r.PTP.Detail)
 	}
+	if r.PTP.TimePropertiesAvailable {
+		fmt.Fprintf(&b, "  PTP time scale: %s\n", map[bool]string{true: "TAI", false: "UTC"}[r.PTP.PTPTimescale])
+		fmt.Fprintf(&b, "  current UTC offset: %+d s (valid: %v)\n", r.PTP.CurrentUTCOffset, r.PTP.CurrentUTCOffsetValid)
+	} else if r.PTP.TimePropertiesDetail != "" {
+		fmt.Fprintf(&b, "  (%s)\n", r.PTP.TimePropertiesDetail)
+	}
+	if len(r.Warnings) > 0 {
+		fmt.Fprintf(&b, "\nWarnings:\n")
+		for _, warning := range r.Warnings {
+			fmt.Fprintf(&b, "  - %s\n", warning)
+		}
+	}
 	return b.String()
+}
+
+func plainHealthState(state HealthState) string {
+	if state == "" {
+		return string(HealthUnknown)
+	}
+	return string(state)
+}
+
+func plainManagementState(r *Report) string {
+	switch r.ManagementState {
+	case "managed":
+		return "managed by timesync"
+	case "error":
+		return "state query error"
+	case "unmanaged", "":
+		return "unmanaged; services are observed"
+	default:
+		return r.ManagementState
+	}
+}
+
+func plainUnitStatus(unit UnitStatus, fallback string) string {
+	state := valueOr(unit.ActiveState, fallback)
+	result := unitLabel(unit) + " · " + state
+	if unit.UnitFileState != "" && unit.UnitFileState != "unknown" && unit.UnitFileState != "not-found" {
+		result += " · " + unit.UnitFileState
+	}
+	return result
 }

@@ -24,6 +24,11 @@ var rootCmd = &cobra.Command{
 	Long:  "Hide NTP/PTP complexity behind simple configuration flows for robot, industrial PC, and embedded Linux deployments.",
 }
 
+// SetVersion exposes the release version through Cobra's --version flag.
+func SetVersion(version string) {
+	rootCmd.Version = version
+}
+
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -65,7 +70,7 @@ func statusCmd() *cobra.Command {
 	var outputFormat string
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Report sync health, role, NTP/PTP offset, port state, and service state",
+		Short: "Report role-aware clock health, source flow, NTP/PTP accuracy, and runtime guards",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report, err := status.Collect()
 			if err != nil {

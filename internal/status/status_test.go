@@ -143,12 +143,23 @@ func TestReportSummary_PTPNotRunning(t *testing.T) {
 
 func TestReportSummary_PTPDetails(t *testing.T) {
 	r := &status.Report{
-		Healthy:   true,
-		NTPHealth: false,
-		PTPHealth: "true",
-		Role:      "ptp",
-		Source:    "SLAVE",
-		Offset:    "0.000042 ms",
+		SchemaVersion:     "1.2",
+		ManagementState:   "managed",
+		ConfiguredRole:    "client",
+		ConfiguredPTP:     true,
+		Role:              "ptp",
+		SystemClockSource: "aabbcc.fffe.112233",
+		ClockFlow:         "PTP grandmaster → PHC → System",
+		Offset:            "0.000042 ms",
+		Health: status.HealthSummary{
+			Overall:     status.HealthHealthy,
+			NTP:         status.HealthDisabled,
+			PTPLink:     status.HealthHealthy,
+			PTPAccuracy: status.HealthHealthy,
+			Clock:       status.HealthHealthy,
+			Discipline:  status.HealthHealthy,
+			Guard:       status.HealthHealthy,
+		},
 		PTP: status.PTPStatus{
 			PTP4LActive:   true,
 			PHC2SysActive: true,
@@ -162,13 +173,17 @@ func TestReportSummary_PTPDetails(t *testing.T) {
 	}
 	out := r.Summary()
 	for _, want := range []string{
-		"NTP health: false",
-		"PTP health: true",
-		"Overall health: true",
+		"Overall status: healthy",
+		"Management: managed by timesync",
+		"NTP sync status: disabled",
+		"PTP link status: healthy",
+		"PTP accuracy status: healthy",
+		"System clock source: aabbcc.fffe.112233",
 		"port state: SLAVE",
+		"grandmaster offset: 0.000042 ms",
 		"master offset: 0.000042 ms",
-		"path delay: 0.002500 ms",
-		"steps removed: 1",
+		"mean path delay: 0.002500 ms",
+		"grandmaster hops: 1",
 		"grandmaster: aabbcc.fffe.112233",
 	} {
 		if !contains(out, want) {
@@ -177,16 +192,29 @@ func TestReportSummary_PTPDetails(t *testing.T) {
 	}
 }
 
-func TestReportSummary_SplitsNTPAndUnknownPTPHealth(t *testing.T) {
+func TestReportSummary_SplitsRequiredNTPAndOptionalPTPHealth(t *testing.T) {
 	r := &status.Report{
-		Healthy:   true,
-		NTPHealth: true,
-		PTPHealth: "unknown",
-		Role:      "ntp",
-		Source:    "3",
-		Offset:    "-1.462872982 s",
+		SchemaVersion:     "1.2",
+		ManagementState:   "managed",
+		ConfiguredRole:    "auto",
+		ConfiguredPTP:     true,
+		Role:              "ntp",
+		SystemClockSource: "time.example.net",
+		ClockFlow:         "NTP → System · PTP monitor",
+		Offset:            "-1.462872982 s",
+		Health: status.HealthSummary{
+			Overall:     status.HealthHealthy,
+			NTP:         status.HealthHealthy,
+			PTPLink:     status.HealthUnknown,
+			PTPAccuracy: status.HealthUnknown,
+			Clock:       status.HealthHealthy,
+			Discipline:  status.HealthHealthy,
+			Guard:       status.HealthDisabled,
+		},
 		Chrony: status.ChronyStatus{
-			Active: true,
+			Active:       true,
+			Synchronized: true,
+			Source:       "time.example.net",
 		},
 		PTP: status.PTPStatus{
 			PTP4LActive:   true,
@@ -196,11 +224,12 @@ func TestReportSummary_SplitsNTPAndUnknownPTPHealth(t *testing.T) {
 	}
 	out := r.Summary()
 	for _, want := range []string{
-		"NTP health: true",
-		"PTP health: unknown",
-		"Overall health: true",
-		"Active role: ntp",
-		"Offset: -1.462872982 s",
+		"Overall status: healthy",
+		"NTP sync status: healthy",
+		"PTP link status: unknown",
+		"Observed discipline: ntp",
+		"System clock source: time.example.net",
+		"Current offset: -1.462872982 s",
 		"(unable to query ptp4l via pmc)",
 	} {
 		if !contains(out, want) {
@@ -209,14 +238,25 @@ func TestReportSummary_SplitsNTPAndUnknownPTPHealth(t *testing.T) {
 	}
 }
 
-func TestReportSummary_PTPPreferredWhenBothHealthy(t *testing.T) {
+func TestReportSummary_PTPClientShowsGrandmasterAsSystemSource(t *testing.T) {
 	r := &status.Report{
-		Healthy:   true,
-		NTPHealth: true,
-		PTPHealth: "true",
-		Role:      "ptp",
-		Source:    "SLAVE",
-		Offset:    "0.000042 ms",
+		SchemaVersion:     "1.2",
+		ManagementState:   "managed",
+		ConfiguredRole:    "client",
+		ConfiguredPTP:     true,
+		Role:              "ptp",
+		SystemClockSource: "aabbcc.fffe.112233",
+		ClockFlow:         "PTP grandmaster → PHC → System",
+		Offset:            "0.000042 ms",
+		Health: status.HealthSummary{
+			Overall:     status.HealthHealthy,
+			NTP:         status.HealthDisabled,
+			PTPLink:     status.HealthHealthy,
+			PTPAccuracy: status.HealthHealthy,
+			Clock:       status.HealthHealthy,
+			Discipline:  status.HealthHealthy,
+			Guard:       status.HealthHealthy,
+		},
 		Chrony: status.ChronyStatus{
 			Active: true,
 			Offset: "-1.462872982",
@@ -227,17 +267,18 @@ func TestReportSummary_PTPPreferredWhenBothHealthy(t *testing.T) {
 			Available:     true,
 			PortState:     "SLAVE",
 			MasterOffset:  "42",
+			GMIdentity:    "aabbcc.fffe.112233",
 		},
 	}
 	out := r.Summary()
 	for _, want := range []string{
-		"NTP health: true",
-		"PTP health: true",
-		"Active role: ptp",
-		"Source: SLAVE",
-		"Offset: 0.000042 ms",
-		"ntp offset: -1.462872982 s",
-		"ptp offset: 0.000042 ms",
+		"NTP sync status: disabled",
+		"PTP link status: healthy",
+		"Observed discipline: ptp",
+		"System clock source: aabbcc.fffe.112233",
+		"Current offset: 0.000042 ms",
+		"current correction: -1.462872982 s",
+		"grandmaster offset: 0.000042 ms",
 	} {
 		if !contains(out, want) {
 			t.Errorf("Summary missing %q:\n%s", want, out)
@@ -247,16 +288,28 @@ func TestReportSummary_PTPPreferredWhenBothHealthy(t *testing.T) {
 
 func TestReportSummary_MasterShowsPTPAndNTPOffsets(t *testing.T) {
 	r := &status.Report{
-		Healthy:        true,
-		NTPHealth:      true,
-		PTPHealth:      "true",
-		ConfiguredRole: "master",
-		Role:           "ptp",
-		Source:         "MASTER",
-		Offset:         "0.000015 ms",
+		SchemaVersion:     "1.2",
+		ManagementState:   "managed",
+		ConfiguredRole:    "master",
+		ConfiguredPTP:     true,
+		Role:              "ntp",
+		SystemClockSource: "time.example.net",
+		ClockFlow:         "NTP → System → PHC → PTP clients",
+		Offset:            "0.000091882 s",
+		Health: status.HealthSummary{
+			Overall:     status.HealthHealthy,
+			NTP:         status.HealthHealthy,
+			PTPLink:     status.HealthHealthy,
+			PTPAccuracy: status.HealthNotApplicable,
+			Clock:       status.HealthHealthy,
+			Discipline:  status.HealthHealthy,
+			Guard:       status.HealthHealthy,
+		},
 		Chrony: status.ChronyStatus{
-			Active: true,
-			Offset: "0.000091882",
+			Active:       true,
+			Synchronized: true,
+			Source:       "time.example.net",
+			Offset:       "0.000091882",
 		},
 		PTP: status.PTPStatus{
 			PTP4LActive:   true,
@@ -269,11 +322,12 @@ func TestReportSummary_MasterShowsPTPAndNTPOffsets(t *testing.T) {
 	out := r.Summary()
 	for _, want := range []string{
 		"Configured role: master",
-		"Active role: ptp",
-		"Offset: 0.000015 ms",
-		"ntp offset: 0.000091882 s",
+		"Observed discipline: ntp",
+		"System clock source: time.example.net",
+		"Current offset: 0.000091882 s",
+		"current correction: 0.000091882 s",
 		"port state: MASTER",
-		"ptp offset: 0.000015 ms",
+		"grandmaster offset: 0.000015 ms",
 	} {
 		if !contains(out, want) {
 			t.Errorf("Summary missing %q:\n%s", want, out)

@@ -8,6 +8,15 @@ import (
 	"github.com/alexzhang1030/time-sync-cli/internal/status"
 )
 
+func TestSetVersion(t *testing.T) {
+	previous := rootCmd.Version
+	t.Cleanup(func() { rootCmd.Version = previous })
+	SetVersion("v1.2.0")
+	if rootCmd.Version != "v1.2.0" {
+		t.Fatalf("version = %q", rootCmd.Version)
+	}
+}
+
 func TestPTPReadyForPHC2SysAcceptsPTPHealthyClockUnhealthy(t *testing.T) {
 	if !ptpReadyForPHC2Sys(&status.Report{
 		PTPHealth:   "true",
@@ -59,7 +68,22 @@ func TestRenderStatusOutputExplicitFormatsOverrideTerminal(t *testing.T) {
 }
 
 func TestRenderStatusOutputJSON(t *testing.T) {
-	report := &status.Report{Role: "ptp", Source: "SLAVE", Healthy: true}
+	report := &status.Report{
+		SchemaVersion:     "1.2",
+		Role:              "ptp",
+		Source:            "aabbcc.fffe.112233",
+		Healthy:           true,
+		SystemClockSource: "aabbcc.fffe.112233",
+		Health: status.HealthSummary{
+			Overall:     status.HealthHealthy,
+			NTP:         status.HealthDisabled,
+			PTPLink:     status.HealthHealthy,
+			PTPAccuracy: status.HealthHealthy,
+			Clock:       status.HealthHealthy,
+			Discipline:  status.HealthHealthy,
+			Guard:       status.HealthHealthy,
+		},
+	}
 	output, err := renderStatusOutput(report, "json", false, false, 76)
 	if err != nil {
 		t.Fatal(err)
@@ -68,8 +92,14 @@ func TestRenderStatusOutputJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
 		t.Fatalf("JSON output decode: %v\n%s", err, output)
 	}
-	if decoded.Role != "ptp" || decoded.Source != "SLAVE" || !decoded.Healthy {
+	if decoded.Role != "ptp" || decoded.Source != "aabbcc.fffe.112233" || !decoded.Healthy {
+		t.Fatalf("legacy JSON fields = %+v", decoded)
+	}
+	if decoded.SchemaVersion != "1.2" || decoded.Health.Overall != status.HealthHealthy || decoded.Health.PTPAccuracy != status.HealthHealthy {
 		t.Fatalf("decoded report = %+v", decoded)
+	}
+	if decoded.SystemClockSource != "aabbcc.fffe.112233" {
+		t.Fatalf("system clock source = %q", decoded.SystemClockSource)
 	}
 }
 

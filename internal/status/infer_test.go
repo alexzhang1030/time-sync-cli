@@ -292,6 +292,47 @@ func TestInferOverallStatusKeepsAutoPTPMonitorOptional(t *testing.T) {
 	}
 }
 
+func TestPopulateDerivedStatusUsesNeutralStatesForDisabledSources(t *testing.T) {
+	client := &Report{
+		ManagementState: "managed",
+		ConfiguredRole:  "client",
+		ConfiguredPTP:   true,
+		PTP: PTPStatus{
+			PTP4LActive:   true,
+			PTP4LState:    "active",
+			PHC2SysActive: true,
+			Available:     true,
+			PortState:     "SLAVE",
+			MasterOffset:  "42",
+		},
+		Clock: ClockStatus{SystemUnix: 1783162152, RTCUnix: 1783162152},
+		Systemd: SystemdStatus{
+			PHC2SysUnit: UnitStatus{ActiveState: "active"},
+			GuardTimer:  UnitStatus{ActiveState: "active", UnitFileState: "enabled"},
+		},
+	}
+	populateDerivedStatus(client)
+	if client.Health.NTP != HealthDisabled {
+		t.Fatalf("client NTP state = %q, want disabled", client.Health.NTP)
+	}
+
+	auto := &Report{
+		ManagementState: "managed",
+		ConfiguredRole:  "auto",
+		Chrony: ChronyStatus{
+			Active:       true,
+			Available:    true,
+			Synchronized: true,
+			Offset:       "0.001",
+		},
+		Clock: ClockStatus{SystemUnix: 1783162152, RTCUnix: 1783162152},
+	}
+	populateDerivedStatus(auto)
+	if auto.Health.PTPLink != HealthDisabled || auto.Health.PTPAccuracy != HealthDisabled {
+		t.Fatalf("auto PTP states = link=%q accuracy=%q", auto.Health.PTPLink, auto.Health.PTPAccuracy)
+	}
+}
+
 func TestInferOverallStatusMarksMissingStateUnmanaged(t *testing.T) {
 	r := &Report{Health: HealthSummary{NTP: HealthHealthy, Clock: HealthHealthy}}
 	if got := inferOverallStatus(r); got != HealthUnmanaged {
@@ -299,6 +340,13 @@ func TestInferOverallStatusMarksMissingStateUnmanaged(t *testing.T) {
 	}
 	if inferOverallHealth(r) {
 		t.Fatal("unmanaged report returned legacy healthy=true")
+	}
+}
+
+func TestInferOverallStatusMarksStateReadFailureUnknown(t *testing.T) {
+	r := &Report{ManagementState: "error", Health: HealthSummary{NTP: HealthHealthy, Clock: HealthHealthy}}
+	if got := inferOverallStatus(r); got != HealthUnknown {
+		t.Fatalf("overall = %q, want unknown", got)
 	}
 }
 

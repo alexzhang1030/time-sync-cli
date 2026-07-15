@@ -22,6 +22,13 @@ func populateDerivedStatus(r *Report) {
 	r.Health.NTP = inferNTPStatus(r.Chrony)
 	r.Health.PTPLink = inferPTPLinkStatus(r.PTP, r.ConfiguredRole)
 	r.Health.PTPAccuracy = inferPTPAccuracyStatus(r.PTP, r.ConfiguredRole)
+	if r.ConfiguredPTP && strings.EqualFold(r.ConfiguredRole, "client") {
+		r.Health.NTP = HealthDisabled
+	}
+	if r.ConfiguredRole != "" && !r.ConfiguredPTP {
+		r.Health.PTPLink = HealthDisabled
+		r.Health.PTPAccuracy = HealthDisabled
+	}
 	r.Health.Clock = inferClockStatus(r.Clock)
 	r.Health.Discipline = inferDisciplineStatus(r)
 	r.Health.Guard = inferGuardStatus(r)
@@ -281,6 +288,9 @@ func inferGuardStatus(r *Report) HealthState {
 }
 
 func inferOverallStatus(r *Report) HealthState {
+	if r.ManagementState == "error" {
+		return HealthUnknown
+	}
 	if strings.TrimSpace(r.ConfiguredRole) == "" {
 		return HealthUnmanaged
 	}
@@ -377,6 +387,9 @@ func inferWarnings(r *Report) []string {
 	var warnings []string
 	if r.Health.Overall == HealthUnmanaged {
 		warnings = append(warnings, "timesync state is absent; observed services may be managed externally")
+	}
+	if r.ManagementState == "error" {
+		warnings = append(warnings, "timesync state could not be read; managed role is unknown")
 	}
 	if r.Chrony.Holdover {
 		warnings = append(warnings, "chrony is serving local holdover time")

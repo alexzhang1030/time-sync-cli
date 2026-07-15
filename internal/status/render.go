@@ -2,6 +2,7 @@ package status
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,7 +54,7 @@ func newStatusRenderer(options RenderOptions) statusRenderer {
 		Width(width - 4)
 	title := lipgloss.NewStyle().Bold(true)
 	section := lipgloss.NewStyle().Bold(true)
-	label := lipgloss.NewStyle().Width(14)
+	label := lipgloss.NewStyle().Width(18)
 	value := lipgloss.NewStyle()
 	muted := lipgloss.NewStyle()
 	good := lipgloss.NewStyle().Bold(true)
@@ -93,15 +94,21 @@ func (s statusRenderer) render(r *Report) string {
 	if clocks := s.renderClocks(r); clocks != "" {
 		blocks = append(blocks, clocks)
 	}
+	if warnings := s.renderWarnings(r); warnings != "" {
+		blocks = append(blocks, warnings)
+	}
 	if diagnostics := s.renderDiagnostics(r); diagnostics != "" {
 		blocks = append(blocks, diagnostics)
+	}
+	if next := s.renderNextStep(r); next != "" {
+		blocks = append(blocks, next)
 	}
 	return strings.Join(blocks, "\n\n") + "\n"
 }
 
 func (s statusRenderer) renderHeader(r *Report) string {
 	title := s.title.Render("TIMESYNC STATUS")
-	badge := s.overallBadge(r.Healthy)
+	badge := s.overallBadge(reportOverallState(r), len(r.Warnings))
 	contentWidth := s.width - 6
 	gap := contentWidth - lipgloss.Width(title) - lipgloss.Width(badge)
 	if gap < 1 {
@@ -109,48 +116,61 @@ func (s statusRenderer) renderHeader(r *Report) string {
 	}
 	line := title + strings.Repeat(" ", gap) + badge
 
-	configured := "unconfigured"
-	if r.ConfiguredRole != "" {
-		configured = r.ConfiguredRole
+	management := "unmanaged · observed state"
+	if r.ManagementState == "error" {
+		management = "management state error"
+	} else if r.ConfiguredRole != "" {
+		management = "managed · " + r.ConfiguredRole
 		if r.ConfiguredPTP {
-			configured += " · PTP enabled"
+			management += " · PTP enabled"
 		}
 	}
 
 	body := []string{
 		line,
-		s.muted.Render(configured),
-		s.row("Active role", displayValue(r.Role)),
-		s.row("Source", displayValue(r.Source)),
+		s.muted.Render(management),
+		s.row("System source", displayValue(r.SystemClockSource)),
+		s.row("Clock flow", displayValue(r.ClockFlow)),
 	}
 	if r.Offset != "" {
-		body = append(body, s.row("Offset", r.Offset))
+		body = append(body, s.row("Current offset", r.Offset))
 	}
 	return s.box.Render(strings.Join(body, "\n"))
 }
 
 func (s statusRenderer) renderHealth(r *Report) string {
-	ntp := s.healthRow("NTP", boolHealth(r.NTPHealth))
-	if r.ConfiguredPTP && !r.NTPHealth && (strings.EqualFold(r.ConfiguredRole, "client") || strings.EqualFold(r.ConfiguredRole, "master")) {
-		ntp = s.neutralRow("NTP", "inactive")
+	ntp := s.healthRow("NTP sync", r.Health.NTP)
+	if r.ConfiguredPTP && strings.EqualFold(r.ConfiguredRole, "client") {
+		ntp = s.neutralRow("NTP sync", "disabled · PTP client")
 	}
-	ptp := s.healthRow("PTP", r.PTPHealth)
-	if r.ConfiguredRole != "" && !r.ConfiguredPTP && strings.EqualFold(r.PTPHealth, "false") {
-		ptp = s.neutralRow("PTP", "disabled")
+
+	ptpLink := s.healthRow("PTP link", r.Health.PTPLink)
+	ptpAccuracy := s.healthRow("PTP accuracy", r.Health.PTPAccuracy)
+	if r.ConfiguredRole != "" && !r.ConfiguredPTP {
+		ptpLink = s.neutralRow("PTP link", "disabled")
+		ptpAccuracy = s.neutralRow("PTP accuracy", "disabled")
 	}
+	if r.Health.PTPAccuracy == HealthNotApplicable {
+		ptpAccuracy = s.neutralRow("PTP accuracy", "n/a · grandmaster")
+	}
+
 	rows := []string{
 		ntp,
-		ptp,
-		s.healthRow("Clock", r.ClockHealth),
+		ptpLink,
+		ptpAccuracy,
+		s.healthRow("Clock", r.Health.Clock),
+		s.healthRow("Clock discipline", r.Health.Discipline),
+		s.healthRow("Runtime guard", r.Health.Guard),
 	}
 	return s.block("HEALTH", rows)
 }
 
 func (s statusRenderer) renderServices(r *Report) string {
 	rows := []string{
-		s.serviceRow("chronyd", r.Systemd.Chronyd),
-		s.serviceRow("ptp4l", r.Systemd.PTP4L),
-		s.serviceRow("phc2sys", r.Systemd.PHC2Sys),
+		s.unitRow("NTP daemon", r.Systemd.NTPDaemon, r.Systemd.Chronyd),
+		s.unitRow("ptp4l", r.Systemd.PTP4LUnit, r.Systemd.PTP4L),
+		s.unitRow("phc2sys", r.Systemd.PHC2SysUnit, r.Systemd.PHC2Sys),
+		s.unitRow("PTP guard", r.Systemd.GuardTimer, "unknown"),
 	}
 	return s.block("SERVICES", rows)
 }
@@ -161,23 +181,26 @@ func (s statusRenderer) renderTiming(r *Report) string {
 		rows = append(rows, s.row("NTP source", r.Chrony.Source))
 	}
 	if r.Chrony.Offset != "" {
-		rows = append(rows, s.row("NTP offset", withUnit(r.Chrony.Offset, "s")))
+		rows = append(rows, s.row("NTP correction", withUnit(r.Chrony.Offset, "s")))
+	}
+	if r.Chrony.LeapStatus != "" {
+		rows = append(rows, s.row("NTP leap status", r.Chrony.LeapStatus))
+	}
+	if r.Chrony.Stratum > 0 {
+		rows = append(rows, s.row("NTP stratum", strconv.Itoa(r.Chrony.Stratum)))
 	}
 	if r.PTP.PortState != "" {
-		rows = append(rows, s.row("PTP port", r.PTP.PortState))
+		rows = append(rows, s.row("PTP port state", r.PTP.PortState))
 	}
-	metrics := PTPMetrics{
-		MasterOffset:     r.PTP.MasterOffset,
-		OffsetFromMaster: r.PTP.OffsetFromMaster,
-	}
+	metrics := PTPMetrics{MasterOffset: r.PTP.MasterOffset, OffsetFromMaster: r.PTP.OffsetFromMaster}
 	if offset := metrics.PTPOffset(); offset != "" {
-		rows = append(rows, s.row("PTP offset", offset))
+		rows = append(rows, s.row("PTP master offset", offset))
 	}
 	if r.PTP.PathDelay != "" {
-		rows = append(rows, s.row("Path delay", formatPTPNanoseconds(r.PTP.PathDelay)))
+		rows = append(rows, s.row("Mean path delay", formatPTPNanoseconds(r.PTP.PathDelay)))
 	}
 	if r.PTP.StepsRemoved != "" {
-		rows = append(rows, s.row("Steps removed", r.PTP.StepsRemoved))
+		rows = append(rows, s.row("GM hops", r.PTP.StepsRemoved))
 	}
 	if r.PTP.GMIdentity != "" {
 		rows = append(rows, s.row("Grandmaster", r.PTP.GMIdentity))
@@ -191,10 +214,10 @@ func (s statusRenderer) renderTiming(r *Report) string {
 func (s statusRenderer) renderClocks(r *Report) string {
 	var rows []string
 	if r.Clock.SystemUnix > 0 {
-		rows = append(rows, s.row("System", formatUnixTime(r.Clock.SystemUnix)))
+		rows = append(rows, s.row("System (UTC)", formatUnixTime(r.Clock.SystemUnix)))
 	}
 	if r.Clock.RTCUnix > 0 {
-		rows = append(rows, s.row("RTC", formatUnixTime(r.Clock.RTCUnix)))
+		rows = append(rows, s.row("RTC (UTC)", formatUnixTime(r.Clock.RTCUnix)))
 	}
 	if r.Clock.PHCUnix > 0 {
 		label := "PHC"
@@ -204,32 +227,72 @@ func (s statusRenderer) renderClocks(r *Report) string {
 		rows = append(rows, s.row(label, formatUnixTime(r.Clock.PHCUnix)))
 	}
 	if r.Clock.RTCSystemSkew != "" {
-		rows = append(rows, s.row("RTC skew", r.Clock.RTCSystemSkew))
+		rows = append(rows, s.row("RTC skew", r.Clock.RTCSystemSkew+" · coarse"))
 	}
-	if r.Clock.PHCSystemSkew != "" {
-		rows = append(rows, s.row("PHC skew", r.Clock.PHCSystemSkew))
+	if r.Clock.PHCTimeScale != "" {
+		rows = append(rows, s.row("PHC time scale", r.Clock.PHCTimeScale))
+	}
+	if r.Clock.TAIUTCOffsetValid {
+		rows = append(rows, s.row("TAI–UTC offset", fmt.Sprintf("%+d s · from ptp4l", r.Clock.TAIUTCOffset)))
+	}
+	if r.Clock.PHCResidual != "" {
+		rows = append(rows, s.row("PHC residual", r.Clock.PHCResidual+" · System − PHC(UTC)"))
+	} else if r.Clock.PHCUnix > 0 {
+		rows = append(rows, s.row("PHC residual", "unknown · time scale unavailable"))
 	}
 	if len(rows) == 0 {
 		return ""
 	}
-	return s.block("CLOCKS", rows)
+	return s.block("CLOCKS · RTC SNAPSHOT 1 s", rows)
+}
+
+func (s statusRenderer) renderWarnings(r *Report) string {
+	if len(r.Warnings) == 0 {
+		return ""
+	}
+	rows := make([]string, 0, len(r.Warnings))
+	for _, warning := range r.Warnings {
+		rows = append(rows, "  "+s.warn.Render("▲ "+warning))
+	}
+	return s.block("WARNINGS", rows)
 }
 
 func (s statusRenderer) renderDiagnostics(r *Report) string {
 	var rows []string
-	if r.PTP.Detail != "" {
+	if r.Chrony.Detail != "" && (!r.ConfiguredPTP || !strings.EqualFold(r.ConfiguredRole, "client")) {
+		rows = append(rows, s.row("NTP", r.Chrony.Detail))
+	}
+	if r.PTP.Detail != "" && (r.ConfiguredPTP || r.ConfiguredRole == "") {
 		rows = append(rows, s.row("PTP", r.PTP.Detail))
+	}
+	if r.PTP.TimePropertiesDetail != "" {
+		rows = append(rows, s.row("PTP time scale", r.PTP.TimePropertiesDetail))
 	}
 	if r.Clock.Detail != "" {
 		rows = append(rows, s.row("Clock", r.Clock.Detail))
 	}
-	if r.Chrony.Tracking != "" {
-		rows = append(rows, s.row("Chrony", r.Chrony.Tracking))
+	if r.ManagementDetail != "" {
+		rows = append(rows, s.row("Management", r.ManagementDetail))
+	}
+	for _, unit := range []UnitStatus{r.Systemd.NTPDaemon, r.Systemd.PTP4LUnit, r.Systemd.PHC2SysUnit, r.Systemd.GuardTimer} {
+		if unit.Detail != "" {
+			rows = append(rows, s.row(unitLabel(unit), unit.Detail))
+		}
 	}
 	if len(rows) == 0 {
 		return ""
 	}
 	return s.block("DIAGNOSTICS", rows)
+}
+
+func (s statusRenderer) renderNextStep(r *Report) string {
+	if reportOverallState(r) != HealthUnmanaged {
+		return ""
+	}
+	return s.block("NEXT STEP", []string{
+		s.row("Inspect host", "timesync doctor"),
+		s.row("Configure", "sudo timesync tui"),
+	})
 }
 
 func (s statusRenderer) block(title string, rows []string) string {
@@ -240,41 +303,90 @@ func (s statusRenderer) row(label, value string) string {
 	return "  " + s.label.Render(label) + s.value.Render(value)
 }
 
-func (s statusRenderer) healthRow(label, health string) string {
-	normalized := strings.ToLower(strings.TrimSpace(health))
-	switch normalized {
-	case "true", "healthy":
+func (s statusRenderer) healthRow(label string, state HealthState) string {
+	switch state {
+	case HealthHealthy:
 		return "  " + s.label.Render(label) + s.good.Render("● HEALTHY")
-	case "unknown", "":
-		return "  " + s.label.Render(label) + s.warn.Render("◆ UNKNOWN")
-	default:
+	case HealthDegraded:
+		return "  " + s.label.Render(label) + s.warn.Render("▲ DEGRADED")
+	case HealthUnhealthy:
 		return "  " + s.label.Render(label) + s.bad.Render("● UNHEALTHY")
+	case HealthUnknown, "":
+		return "  " + s.label.Render(label) + s.warn.Render("◆ UNKNOWN")
+	case HealthInactive:
+		return s.neutralRow(label, "inactive")
+	case HealthDisabled:
+		return s.neutralRow(label, "disabled")
+	case HealthNotApplicable:
+		return s.neutralRow(label, "n/a")
+	case HealthUnmanaged:
+		return s.neutralRow(label, "unmanaged")
+	default:
+		return s.neutralRow(label, string(state))
 	}
 }
 
-func (s statusRenderer) serviceRow(label, state string) string {
-	if strings.EqualFold(strings.TrimSpace(state), "active") {
-		return "  " + s.label.Render(label) + s.good.Render("● active")
+func (s statusRenderer) unitRow(label string, unit UnitStatus, fallback string) string {
+	state := valueOr(unit.ActiveState, fallback)
+	name := unitLabel(unit)
+	value := name + " · " + state
+	if unit.UnitFileState != "" && unit.UnitFileState != "unknown" && unit.UnitFileState != "not-found" {
+		value += " · " + unit.UnitFileState
 	}
-	return "  " + s.label.Render(label) + s.muted.Render("○ "+displayValue(state))
+	switch state {
+	case "active":
+		return "  " + s.label.Render(label) + s.good.Render("● "+value)
+	case "query-error":
+		return "  " + s.label.Render(label) + s.warn.Render("◆ "+value)
+	default:
+		return "  " + s.label.Render(label) + s.muted.Render("○ "+value)
+	}
 }
 
 func (s statusRenderer) neutralRow(label, state string) string {
 	return "  " + s.label.Render(label) + s.muted.Render("○ "+state)
 }
 
-func (s statusRenderer) overallBadge(healthy bool) string {
-	if healthy {
+func (s statusRenderer) overallBadge(state HealthState, warnings int) string {
+	switch state {
+	case HealthHealthy:
+		if warnings > 0 {
+			return s.good.Render(fmt.Sprintf("● HEALTHY · %d WARN", warnings))
+		}
 		return s.good.Render("● HEALTHY")
+	case HealthDegraded:
+		return s.warn.Render("▲ DEGRADED")
+	case HealthUnknown:
+		return s.warn.Render("◆ UNKNOWN")
+	case HealthUnmanaged:
+		return s.muted.Render("◇ UNMANAGED")
+	default:
+		return s.bad.Render("● NEEDS ATTENTION")
 	}
-	return s.bad.Render("● NEEDS ATTENTION")
 }
 
-func boolHealth(healthy bool) string {
-	if healthy {
-		return "true"
+func reportOverallState(r *Report) HealthState {
+	if r.Health.Overall != "" {
+		return r.Health.Overall
 	}
-	return "false"
+	if r.ManagementState == "error" {
+		return HealthUnknown
+	}
+	if r.ConfiguredRole == "" {
+		return HealthUnmanaged
+	}
+	if r.Healthy {
+		return HealthHealthy
+	}
+	return HealthUnhealthy
+}
+
+func unitLabel(unit UnitStatus) string {
+	name := strings.TrimSpace(unit.Unit)
+	if name == "" {
+		return "unknown unit"
+	}
+	return name
 }
 
 func displayValue(value string) string {
