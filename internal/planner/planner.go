@@ -362,7 +362,10 @@ func renderPTP4LMaster(iface string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
 [global]
 clockClass            6
-clockAccuracy         0x21
+clockAccuracy         0xFE
+offsetScaledLogVariance 0xFFFF
+utc_offset            37
+timeSource            0x50
 priority1             128
 priority2             128
 domainNumber          0
@@ -464,12 +467,13 @@ StartLimitIntervalSec=0
 [Service]
 ExecStartPre=%s boot-guard --iface %s --repair-system-clock
 ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf
+ExecStartPost=%s publish-gm-time-properties --timeout 30s
 Restart=on-failure
 RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-`, timesyncBin, iface)) + "\n"
+`, timesyncBin, iface, timesyncBin)) + "\n"
 }
 
 func renderPTP4LService(iface string, mode bootGuardMode) string {

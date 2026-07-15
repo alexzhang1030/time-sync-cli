@@ -151,8 +151,16 @@ func TestPlanMaster_PTP(t *testing.T) {
 	for _, c := range plan.Changes {
 		if strings.Contains(c.Content, "clockClass") {
 			found = true
-			if !strings.Contains(c.Content, "unicast_listen") {
-				t.Error("expected PTP master to listen for unicast clients")
+			for _, want := range []string{
+				"unicast_listen",
+				"utc_offset            37",
+				"clockAccuracy         0xFE",
+				"offsetScaledLogVariance 0xFFFF",
+				"timeSource            0x50",
+			} {
+				if !strings.Contains(c.Content, want) {
+					t.Errorf("PTP master config missing %q", want)
+				}
 			}
 		}
 		if c.Path == "/etc/systemd/system/ptp4l.service" {
@@ -164,6 +172,9 @@ func TestPlanMaster_PTP(t *testing.T) {
 			}
 			if !strings.Contains(c.Content, "ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock") {
 				t.Error("expected PTP master boot guard to seed PHC from trusted system time")
+			}
+			if !strings.Contains(c.Content, "ExecStartPost=/usr/bin/timesync publish-gm-time-properties --timeout 30s") {
+				t.Error("expected PTP master to publish valid UTC offset metadata after every ptp4l start")
 			}
 			if strings.Contains(c.Content, "--require-trusted-system-clock") {
 				t.Error("PTP master boot guard should use chrony-gated system time")

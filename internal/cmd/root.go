@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexzhang1030/time-sync-cli/internal/apply"
 	"github.com/alexzhang1030/time-sync-cli/internal/detect"
+	"github.com/alexzhang1030/time-sync-cli/internal/gm"
 	"github.com/alexzhang1030/time-sync-cli/internal/guard"
 	"github.com/alexzhang1030/time-sync-cli/internal/model"
 	"github.com/alexzhang1030/time-sync-cli/internal/planner"
@@ -40,6 +41,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(applyCmd())
 	rootCmd.AddCommand(bootGuardCmd())
+	rootCmd.AddCommand(publishGMTimePropertiesCmd())
 	rootCmd.AddCommand(guardPTPCmd())
 	rootCmd.AddCommand(waitPTPCmd())
 	rootCmd.AddCommand(repairClockCmd())
@@ -378,6 +380,40 @@ func waitPTPCmd() *cobra.Command {
 	}
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time to wait for healthy PTP before phc2sys starts")
 	cmd.Flags().DurationVar(&interval, "interval", time.Second, "PTP health polling interval")
+	return cmd
+}
+
+func publishGMTimePropertiesCmd() *cobra.Command {
+	var configPath string
+	var timeout, interval time.Duration
+	cmd := &cobra.Command{
+		Use:          "publish-gm-time-properties",
+		Short:        "Publish a valid UTC offset from a PTP grandmaster",
+		Hidden:       true,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			state, err := apply.LoadState("")
+			if err != nil {
+				return fmt.Errorf("load applied role before publishing grandmaster properties: %w", err)
+			}
+			if state.Role != model.RoleMaster || !state.PTP {
+				return fmt.Errorf("grandmaster time properties require an applied master --ptp role")
+			}
+			result, err := gm.Publish(gm.Options{
+				ConfigPath: configPath,
+				Timeout:    timeout,
+				Interval:   interval,
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Published PTP grandmaster UTC offset %+d s.\n", result.UTCOffset)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", gm.DefaultConfigPath, "generated ptp4l configuration")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time to wait for the ptp4l management socket")
+	cmd.Flags().DurationVar(&interval, "interval", time.Second, "retry interval")
 	return cmd
 }
 
