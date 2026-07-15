@@ -153,6 +153,10 @@ func TestPlanMaster_PTP(t *testing.T) {
 			found = true
 			for _, want := range []string{
 				"unicast_listen",
+				"summary_interval      0",
+				"logAnnounceInterval   0",
+				"logSyncInterval       -3",
+				"logMinDelayReqInterval -3",
 				"utc_offset            37",
 				"clockAccuracy         0xFE",
 				"offsetScaledLogVariance 0xFFFF",
@@ -355,7 +359,7 @@ func TestPlanClient_PTPSystemdUnitsAreEnableable(t *testing.T) {
 
 	required := map[string]string{
 		"/etc/systemd/system/ptp4l.service":              "ExecStart=/usr/sbin/ptp4l -f /etc/timesync-cli/ptp4l.conf",
-		"/etc/systemd/system/phc2sys.service":            "ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s eth0 -w -S 1.0",
+		"/etc/systemd/system/phc2sys.service":            "ExecStart=/usr/sbin/phc2sys -f /etc/timesync-cli/ptp4l.conf -s eth0 -w -R 8 -N 5 -S 1.0",
 		"/etc/systemd/system/timesync-ptp-guard.service": "ExecStart=/usr/bin/timesync guard-ptp",
 		"/etc/systemd/system/timesync-ptp-guard.timer":   "OnUnitActiveSec=5s",
 	}
