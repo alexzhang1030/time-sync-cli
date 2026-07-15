@@ -3,6 +3,9 @@ package status
 import (
 	"testing"
 	"time"
+
+	"github.com/alexzhang1030/time-sync-cli/internal/apply"
+	"github.com/alexzhang1030/time-sync-cli/internal/model"
 )
 
 func TestInferSyncStateAddsNTPUnit(t *testing.T) {
@@ -172,6 +175,9 @@ func TestPopulatePHCResidualNormalizesTAITime(t *testing.T) {
 	if clock.PHCResidualNS == nil || *clock.PHCResidualNS != 0 {
 		t.Fatalf("residual = %v", clock.PHCResidualNS)
 	}
+	if clock.PHCUTCUnix != system {
+		t.Fatalf("PHC UTC unix = %d, want %d", clock.PHCUTCUnix, system)
+	}
 	if clock.PHCTimeScale != "TAI" || clock.TAIUTCOffset != 37 || !clock.TAIUTCOffsetValid {
 		t.Fatalf("clock = %+v", clock)
 	}
@@ -221,6 +227,19 @@ func TestInferClockHealthUnknownWithoutPHCTimeScale(t *testing.T) {
 	health := inferClockHealth(ClockStatus{SystemUnix: 1783162152, RTCUnix: 1783162152, PHCUnix: 1783162189})
 	if health != "unknown" {
 		t.Fatalf("health = %q, want unknown", health)
+	}
+}
+
+func TestInferClockStatusRequiresPHCEvidenceForPTPRoles(t *testing.T) {
+	clock := ClockStatus{SystemUnix: 1783162152, RTCUnix: 1783162152}
+	if got := inferClockStatusForRole(clock, "client", true); got != HealthUnknown {
+		t.Fatalf("client clock = %q, want unknown", got)
+	}
+	if got := inferClockStatusForRole(clock, "master", true); got != HealthUnknown {
+		t.Fatalf("master clock = %q, want unknown", got)
+	}
+	if got := inferClockStatusForRole(clock, "auto", true); got != HealthHealthy {
+		t.Fatalf("auto clock = %q, want healthy", got)
 	}
 }
 
@@ -325,11 +344,14 @@ func TestPopulateDerivedStatusUsesNeutralStatesForDisabledSources(t *testing.T) 
 			Synchronized: true,
 			Offset:       "0.001",
 		},
-		Clock: ClockStatus{SystemUnix: 1783162152, RTCUnix: 1783162152},
+		Clock: ClockStatus{SystemUnix: 1783162152, RTCUnix: 1783162152, PHCUnix: 1783162189},
 	}
 	populateDerivedStatus(auto)
 	if auto.Health.PTPLink != HealthDisabled || auto.Health.PTPAccuracy != HealthDisabled {
 		t.Fatalf("auto PTP states = link=%q accuracy=%q", auto.Health.PTPLink, auto.Health.PTPAccuracy)
+	}
+	if auto.Health.Clock != HealthHealthy {
+		t.Fatalf("auto clock state = %q, want healthy", auto.Health.Clock)
 	}
 }
 
@@ -347,6 +369,23 @@ func TestInferOverallStatusMarksStateReadFailureUnknown(t *testing.T) {
 	r := &Report{ManagementState: "error", Health: HealthSummary{NTP: HealthHealthy, Clock: HealthHealthy}}
 	if got := inferOverallStatus(r); got != HealthUnknown {
 		t.Fatalf("overall = %q, want unknown", got)
+	}
+}
+
+func TestConfiguredStateRejectsInvalidRoleAndMissingPTPInterface(t *testing.T) {
+	_, _, management, detail := configuredStateFromState(&apply.State{Role: model.Role("server")})
+	if management != "error" || detail == "" {
+		t.Fatalf("invalid role state = management=%q detail=%q", management, detail)
+	}
+
+	_, _, management, detail = configuredStateFromState(&apply.State{Role: model.RoleClient, PTP: true})
+	if management != "error" || detail == "" {
+		t.Fatalf("missing interface state = management=%q detail=%q", management, detail)
+	}
+
+	role, ptp, management, detail := configuredStateFromState(&apply.State{Role: model.RoleClient, PTP: true, Iface: "eth0"})
+	if role != "client" || !ptp || management != "managed" || detail != "" {
+		t.Fatalf("valid state = role=%q ptp=%v management=%q detail=%q", role, ptp, management, detail)
 	}
 }
 

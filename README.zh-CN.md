@@ -181,7 +181,7 @@ timedatectl status        # 系统时钟 + RTC 同步标志
 
 健康状态分为 `healthy`、`degraded`、`unhealthy`、`unknown`、`disabled` 和 `unmanaged`。NTP 当前修正量在 100 ms 内为 healthy，1 s 内为 degraded；PTP Grandmaster 偏移和归一化 PHC 残差在 10 ms 内为 healthy，1 s 内为 degraded；epoch 时钟和超过 1 小时的 RTC/系统差值为 unhealthy。查询失败映射为 `unknown`，用于区分证据缺失和已测量故障。
 
-PTP 硬件时钟通常采用 TAI 时间尺度，Linux 系统时钟显示 UTC，具体模型参见 [linuxptp `phc2sys` 时钟时间尺度文档](https://www.linuxptp.org/documentation/phc2sys/)。`status` 从 `TIME_PROPERTIES_DATA_SET` 动态读取 `currentUtcOffset` 及其有效位，把 PHC 采样转换为 UTC，再报告 `PHC residual = System − PHC(UTC)`。接近当前 TAI–UTC 差值的原始差值属于预期结果。JSON 保留 `phc_system_skew` 原始兼容字段，并增加 `phc_residual_ns`、`phc_time_scale`、`tai_utc_offset` 和 `tai_utc_offset_valid`，供自动化读取准确语义。
+PTP 硬件时钟通常采用 TAI 时间尺度，Linux 系统时钟显示 UTC，具体模型参见 [linuxptp `phc2sys` 时钟时间尺度文档](https://www.linuxptp.org/documentation/phc2sys/)。`status` 从 `TIME_PROPERTIES_DATA_SET` 动态读取 `currentUtcOffset` 及其有效位，把 PHC 采样转换为 UTC，再分别报告 `PHC raw (TAI)`、`PHC as UTC` 和 `PHC residual = System − PHC(UTC)`。接近当前 TAI–UTC 差值的原始差值属于预期结果。JSON 保留 `phc_system_skew` 和 `phc_unix` 原始兼容字段，并增加 `phc_utc_unix`、`phc_residual_ns`、`phc_time_scale`、`tai_utc_offset` 和 `tai_utc_offset_valid`，供自动化读取准确语义。
 
 JSON 输出使用增量 schema `1.2`。原有顶层字段 `healthy`、`ntp_health`、`ptp_health`、`clock_health`、`role`、`source` 和 `offset` 继续可用。新消费方推荐使用 `health.*`、`system_clock_source`、`clock_flow`、`management_state`、归一化时钟字段和结构化 systemd unit 记录。
 

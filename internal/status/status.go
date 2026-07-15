@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alexzhang1030/time-sync-cli/internal/apply"
+	"github.com/alexzhang1030/time-sync-cli/internal/model"
 )
 
 const (
@@ -116,6 +117,7 @@ type ClockStatus struct {
 	SystemUnix            int64  `json:"system_unix" yaml:"system_unix"`
 	RTCUnix               int64  `json:"rtc_unix" yaml:"rtc_unix"`
 	PHCUnix               int64  `json:"phc_unix" yaml:"phc_unix"`
+	PHCUTCUnix            int64  `json:"phc_utc_unix,omitempty" yaml:"phc_utc_unix,omitempty"`
 	Iface                 string `json:"iface" yaml:"iface"`
 	RTCSystemSkew         string `json:"rtc_system_skew" yaml:"rtc_system_skew"`
 	PHCSystemSkew         string `json:"phc_system_skew" yaml:"phc_system_skew"`
@@ -156,7 +158,8 @@ func Collect() (*Report, error) {
 	r.Chrony = collectChrony(r.Systemd.NTPDaemon)
 	r.PTP = collectPTP(r.Systemd)
 	r.ConfiguredRole, r.ConfiguredPTP, r.ManagementState, r.ManagementDetail = configuredState()
-	r.Clock = collectClock(r.PTP)
+	usesPHC := r.ConfiguredPTP && (strings.EqualFold(r.ConfiguredRole, "client") || strings.EqualFold(r.ConfiguredRole, "master"))
+	r.Clock = collectClock(r.PTP, usesPHC)
 	populateDerivedStatus(r)
 	return r, nil
 }
@@ -215,7 +218,7 @@ func collectPTP(systemd SystemdStatus) PTPStatus {
 	return s
 }
 
-func collectClock(ptp PTPStatus) ClockStatus {
+func collectClock(ptp PTPStatus, includePHC bool) ClockStatus {
 	now := time.Now()
 	s := ClockStatus{
 		SystemUnix: now.Unix(),
@@ -229,9 +232,11 @@ func collectClock(ptp PTPStatus) ClockStatus {
 		s.RTCSystemSkew = formatSeconds(s.SystemUnix - s.RTCUnix)
 	}
 
-	state, err := apply.LoadState("")
-	if err == nil {
-		s.Iface = strings.TrimSpace(state.Iface)
+	if includePHC {
+		state, err := apply.LoadState("")
+		if err == nil {
+			s.Iface = strings.TrimSpace(state.Iface)
+		}
 	}
 	if s.Iface != "" {
 		before := time.Now()
@@ -394,10 +399,23 @@ func configuredState() (role string, ptp bool, managementState, detail string) {
 		}
 		return "", false, "error", err.Error()
 	}
-	if strings.TrimSpace(string(state.Role)) == "" {
-		return "", state.PTP, "error", "state.json contains an empty role"
+	return configuredStateFromState(state)
+}
+
+func configuredStateFromState(state *apply.State) (role string, ptp bool, managementState, detail string) {
+	if state == nil {
+		return "", false, "error", "state.json contains no state"
 	}
-	return string(state.Role), state.PTP, "managed", ""
+	role = strings.ToLower(strings.TrimSpace(string(state.Role)))
+	switch model.Role(role) {
+	case model.RoleAuto, model.RoleMaster, model.RoleClient:
+	default:
+		return "", state.PTP, "error", fmt.Sprintf("state.json contains invalid role %q", state.Role)
+	}
+	if state.PTP && strings.TrimSpace(state.Iface) == "" {
+		return role, true, "error", "state.json contains a PTP role without an interface"
+	}
+	return role, state.PTP, "managed", ""
 }
 
 func absInt64(value int64) int64 {
@@ -450,23 +468,27 @@ func (r *Report) Summary() string {
 	fmt.Fprintf(&b, "  phc2sys:    %s\n", plainUnitStatus(r.Systemd.PHC2SysUnit, r.Systemd.PHC2Sys))
 	fmt.Fprintf(&b, "  ptp guard:  %s\n", plainUnitStatus(r.Systemd.GuardTimer, "unknown"))
 	fmt.Fprintf(&b, "\nChrony:\n")
-	fmt.Fprintf(&b, "  active: %v\n", r.Chrony.Active)
-	fmt.Fprintf(&b, "  synchronized: %v\n", r.Chrony.Synchronized)
-	fmt.Fprintf(&b, "  holdover: %v\n", r.Chrony.Holdover)
-	if r.Chrony.Source != "" {
-		fmt.Fprintf(&b, "  source: %s\n", r.Chrony.Source)
-	}
-	if r.Chrony.Stratum > 0 {
-		fmt.Fprintf(&b, "  stratum: %d\n", r.Chrony.Stratum)
-	}
-	if r.Chrony.LeapStatus != "" {
-		fmt.Fprintf(&b, "  leap status: %s\n", r.Chrony.LeapStatus)
-	}
-	if r.Chrony.Offset != "" {
-		fmt.Fprintf(&b, "  current correction: %s\n", withUnit(r.Chrony.Offset, "s"))
-	}
-	if r.Chrony.Tracking != "" {
-		fmt.Fprintf(&b, "  tracking: %s\n", r.Chrony.Tracking)
+	if r.ConfiguredPTP && strings.EqualFold(r.ConfiguredRole, "client") {
+		fmt.Fprintf(&b, "  state: disabled by PTP client role\n")
+	} else {
+		fmt.Fprintf(&b, "  active: %v\n", r.Chrony.Active)
+		fmt.Fprintf(&b, "  synchronized: %v\n", r.Chrony.Synchronized)
+		fmt.Fprintf(&b, "  holdover: %v\n", r.Chrony.Holdover)
+		if r.Chrony.Source != "" {
+			fmt.Fprintf(&b, "  source: %s\n", r.Chrony.Source)
+		}
+		if r.Chrony.Stratum > 0 {
+			fmt.Fprintf(&b, "  stratum: %d\n", r.Chrony.Stratum)
+		}
+		if r.Chrony.LeapStatus != "" {
+			fmt.Fprintf(&b, "  leap status: %s\n", r.Chrony.LeapStatus)
+		}
+		if r.Chrony.Offset != "" {
+			fmt.Fprintf(&b, "  current correction: %s\n", withUnit(r.Chrony.Offset, "s"))
+		}
+		if r.Chrony.Tracking != "" {
+			fmt.Fprintf(&b, "  tracking: %s\n", r.Chrony.Tracking)
+		}
 	}
 	fmt.Fprintf(&b, "\nClocks:\n")
 	if r.Clock.SystemUnix > 0 {
@@ -479,10 +501,13 @@ func (r *Report) Summary() string {
 		fmt.Fprintf(&b, "  phc iface:   %s\n", r.Clock.Iface)
 	}
 	if r.Clock.PHCUnix > 0 {
-		fmt.Fprintf(&b, "  phc unix:    %d\n", r.Clock.PHCUnix)
+		fmt.Fprintf(&b, "  phc raw unix: %d\n", r.Clock.PHCUnix)
+	}
+	if r.Clock.PHCUTCUnix > 0 {
+		fmt.Fprintf(&b, "  phc UTC unix: %d\n", r.Clock.PHCUTCUnix)
 	}
 	if r.Clock.RTCSystemSkew != "" {
-		fmt.Fprintf(&b, "  rtc-system skew: %s (1 s snapshot)\n", r.Clock.RTCSystemSkew)
+		fmt.Fprintf(&b, "  rtc residual (System - RTC): %s (1 s snapshot)\n", r.Clock.RTCSystemSkew)
 	}
 	if r.Clock.PHCSystemSkew != "" {
 		fmt.Fprintf(&b, "  phc-system raw difference: %s\n", r.Clock.PHCSystemSkew)
@@ -503,41 +528,45 @@ func (r *Report) Summary() string {
 		fmt.Fprintf(&b, "  (%s)\n", r.Clock.Detail)
 	}
 	fmt.Fprintf(&b, "\nPTP:\n")
-	fmt.Fprintf(&b, "  ptp4l:   %v\n", r.PTP.PTP4LActive)
-	fmt.Fprintf(&b, "  phc2sys: %v\n", r.PTP.PHC2SysActive)
-	if r.PTP.Available {
-		if r.PTP.PortState != "" {
-			fmt.Fprintf(&b, "  port state: %s\n", r.PTP.PortState)
+	if r.ConfiguredRole != "" && !r.ConfiguredPTP {
+		fmt.Fprintf(&b, "  state: disabled by configured role\n")
+	} else {
+		fmt.Fprintf(&b, "  ptp4l:   %v\n", r.PTP.PTP4LActive)
+		fmt.Fprintf(&b, "  phc2sys: %v\n", r.PTP.PHC2SysActive)
+		if r.PTP.Available {
+			if r.PTP.PortState != "" {
+				fmt.Fprintf(&b, "  port state: %s\n", r.PTP.PortState)
+			}
+			metrics := PTPMetrics{
+				MasterOffset:     r.PTP.MasterOffset,
+				OffsetFromMaster: r.PTP.OffsetFromMaster,
+			}
+			if ptpOffset := metrics.PTPOffset(); ptpOffset != "" && !strings.EqualFold(r.PTP.PortState, "MASTER") {
+				fmt.Fprintf(&b, "  grandmaster offset: %s\n", ptpOffset)
+			}
+			if r.PTP.MasterOffset != "" && !strings.EqualFold(r.PTP.PortState, "MASTER") {
+				fmt.Fprintf(&b, "  master offset: %s\n", formatPTPNanoseconds(r.PTP.MasterOffset))
+			} else if r.PTP.OffsetFromMaster != "" && !strings.EqualFold(r.PTP.PortState, "MASTER") {
+				fmt.Fprintf(&b, "  offset from master: %s\n", formatPTPNanoseconds(r.PTP.OffsetFromMaster))
+			}
+			if r.PTP.PathDelay != "" {
+				fmt.Fprintf(&b, "  mean path delay: %s\n", formatPTPNanoseconds(r.PTP.PathDelay))
+			}
+			if r.PTP.StepsRemoved != "" {
+				fmt.Fprintf(&b, "  grandmaster hops: %s\n", r.PTP.StepsRemoved)
+			}
+			if r.PTP.GMIdentity != "" {
+				fmt.Fprintf(&b, "  grandmaster: %s\n", r.PTP.GMIdentity)
+			}
+		} else if r.PTP.Detail != "" {
+			fmt.Fprintf(&b, "  (%s)\n", r.PTP.Detail)
 		}
-		metrics := PTPMetrics{
-			MasterOffset:     r.PTP.MasterOffset,
-			OffsetFromMaster: r.PTP.OffsetFromMaster,
+		if r.PTP.TimePropertiesAvailable {
+			fmt.Fprintf(&b, "  PTP time scale: %s\n", map[bool]string{true: "TAI", false: "UTC"}[r.PTP.PTPTimescale])
+			fmt.Fprintf(&b, "  current UTC offset: %+d s (valid: %v)\n", r.PTP.CurrentUTCOffset, r.PTP.CurrentUTCOffsetValid)
+		} else if r.PTP.TimePropertiesDetail != "" {
+			fmt.Fprintf(&b, "  (%s)\n", r.PTP.TimePropertiesDetail)
 		}
-		if ptpOffset := metrics.PTPOffset(); ptpOffset != "" {
-			fmt.Fprintf(&b, "  grandmaster offset: %s\n", ptpOffset)
-		}
-		if r.PTP.MasterOffset != "" {
-			fmt.Fprintf(&b, "  master offset: %s\n", formatPTPNanoseconds(r.PTP.MasterOffset))
-		} else if r.PTP.OffsetFromMaster != "" {
-			fmt.Fprintf(&b, "  offset from master: %s\n", formatPTPNanoseconds(r.PTP.OffsetFromMaster))
-		}
-		if r.PTP.PathDelay != "" {
-			fmt.Fprintf(&b, "  mean path delay: %s\n", formatPTPNanoseconds(r.PTP.PathDelay))
-		}
-		if r.PTP.StepsRemoved != "" {
-			fmt.Fprintf(&b, "  grandmaster hops: %s\n", r.PTP.StepsRemoved)
-		}
-		if r.PTP.GMIdentity != "" {
-			fmt.Fprintf(&b, "  grandmaster: %s\n", r.PTP.GMIdentity)
-		}
-	} else if r.PTP.Detail != "" {
-		fmt.Fprintf(&b, "  (%s)\n", r.PTP.Detail)
-	}
-	if r.PTP.TimePropertiesAvailable {
-		fmt.Fprintf(&b, "  PTP time scale: %s\n", map[bool]string{true: "TAI", false: "UTC"}[r.PTP.PTPTimescale])
-		fmt.Fprintf(&b, "  current UTC offset: %+d s (valid: %v)\n", r.PTP.CurrentUTCOffset, r.PTP.CurrentUTCOffsetValid)
-	} else if r.PTP.TimePropertiesDetail != "" {
-		fmt.Fprintf(&b, "  (%s)\n", r.PTP.TimePropertiesDetail)
 	}
 	if len(r.Warnings) > 0 {
 		fmt.Fprintf(&b, "\nWarnings:\n")

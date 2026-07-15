@@ -193,8 +193,8 @@ func (s statusRenderer) renderTiming(r *Report) string {
 		rows = append(rows, s.row("PTP port state", r.PTP.PortState))
 	}
 	metrics := PTPMetrics{MasterOffset: r.PTP.MasterOffset, OffsetFromMaster: r.PTP.OffsetFromMaster}
-	if offset := metrics.PTPOffset(); offset != "" {
-		rows = append(rows, s.row("PTP master offset", offset))
+	if offset := metrics.PTPOffset(); offset != "" && !strings.EqualFold(r.PTP.PortState, "MASTER") {
+		rows = append(rows, s.row("Offset from GM", offset))
 	}
 	if r.PTP.PathDelay != "" {
 		rows = append(rows, s.row("Mean path delay", formatPTPNanoseconds(r.PTP.PathDelay)))
@@ -220,14 +220,24 @@ func (s statusRenderer) renderClocks(r *Report) string {
 		rows = append(rows, s.row("RTC (UTC)", formatUnixTime(r.Clock.RTCUnix)))
 	}
 	if r.Clock.PHCUnix > 0 {
-		label := "PHC"
+		iface := ""
 		if r.Clock.Iface != "" {
-			label += " (" + r.Clock.Iface + ")"
+			iface = " (" + r.Clock.Iface + ")"
 		}
-		rows = append(rows, s.row(label, formatUnixTime(r.Clock.PHCUnix)))
+		switch {
+		case r.Clock.PHCTimeScale == "TAI":
+			rows = append(rows, s.row("PHC raw"+iface, formatUnixTimeScale(r.Clock.PHCUnix, "TAI")))
+			if r.Clock.PHCUTCUnix > 0 {
+				rows = append(rows, s.row("PHC as UTC", formatUnixTime(r.Clock.PHCUTCUnix)))
+			}
+		case r.Clock.PHCTimeScale == "UTC":
+			rows = append(rows, s.row("PHC (UTC)"+iface, formatUnixTime(r.Clock.PHCUnix)))
+		default:
+			rows = append(rows, s.row("PHC raw"+iface, formatUnixTimeScale(r.Clock.PHCUnix, "unknown scale")))
+		}
 	}
 	if r.Clock.RTCSystemSkew != "" {
-		rows = append(rows, s.row("RTC skew", r.Clock.RTCSystemSkew+" · coarse"))
+		rows = append(rows, s.row("RTC residual", r.Clock.RTCSystemSkew+" · System − RTC"))
 	}
 	if r.Clock.PHCTimeScale != "" {
 		rows = append(rows, s.row("PHC time scale", r.Clock.PHCTimeScale))
@@ -398,4 +408,9 @@ func displayValue(value string) string {
 
 func formatUnixTime(value int64) string {
 	return fmt.Sprintf("%s  (%d)", time.Unix(value, 0).UTC().Format("2006-01-02 15:04:05 UTC"), value)
+}
+
+func formatUnixTimeScale(value int64, scale string) string {
+	formatted := time.Unix(value, 0).UTC().Format("2006-01-02 15:04:05")
+	return fmt.Sprintf("%s %s  (%d)", formatted, scale, value)
 }

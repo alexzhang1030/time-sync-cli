@@ -29,7 +29,7 @@ func populateDerivedStatus(r *Report) {
 		r.Health.PTPLink = HealthDisabled
 		r.Health.PTPAccuracy = HealthDisabled
 	}
-	r.Health.Clock = inferClockStatus(r.Clock)
+	r.Health.Clock = inferClockStatusForRole(r.Clock, r.ConfiguredRole, r.ConfiguredPTP)
 	r.Health.Discipline = inferDisciplineStatus(r)
 	r.Health.Guard = inferGuardStatus(r)
 	r.Health.Overall = inferOverallStatus(r)
@@ -199,6 +199,7 @@ func populatePHCResidual(s *ClockStatus, ptp PTPStatus, phcUnixNS int64) {
 	if !ptp.TimePropertiesAvailable {
 		return
 	}
+	phcUTCUnixNS := phcUnixNS
 	if ptp.PTPTimescale {
 		s.PHCTimeScale = "TAI"
 		s.TAIUTCOffset = ptp.CurrentUTCOffset
@@ -206,11 +207,12 @@ func populatePHCResidual(s *ClockStatus, ptp PTPStatus, phcUnixNS int64) {
 		if !ptp.CurrentUTCOffsetValid {
 			return
 		}
-		phcUnixNS -= int64(ptp.CurrentUTCOffset) * int64(time.Second)
+		phcUTCUnixNS -= int64(ptp.CurrentUTCOffset) * int64(time.Second)
 	} else {
 		s.PHCTimeScale = "UTC"
 	}
-	residual := s.phcSampleSystemUnixNS - phcUnixNS
+	s.PHCUTCUnix = phcUTCUnixNS / int64(time.Second)
+	residual := s.phcSampleSystemUnixNS - phcUTCUnixNS
 	s.PHCResidualNS = &residual
 	s.PHCResidual = formatClockResidual(residual)
 }
@@ -243,6 +245,29 @@ func inferClockStatus(s ClockStatus) HealthState {
 		return HealthUnknown
 	}
 	return HealthHealthy
+}
+
+func inferClockStatusForRole(s ClockStatus, configuredRole string, configuredPTP bool) HealthState {
+	usesPHC := configuredPTP && (strings.EqualFold(configuredRole, "client") || strings.EqualFold(configuredRole, "master"))
+	if usesPHC {
+		base := s
+		base.PHCUnix = 0
+		base.PHCUTCUnix = 0
+		base.PHCResidualNS = nil
+		base.PHCResidual = ""
+		if state := inferClockStatus(base); state != HealthHealthy {
+			return state
+		}
+		if s.PHCUnix <= 0 {
+			return HealthUnknown
+		}
+		return inferClockStatus(s)
+	}
+	s.PHCUnix = 0
+	s.PHCUTCUnix = 0
+	s.PHCResidualNS = nil
+	s.PHCResidual = ""
+	return inferClockStatus(s)
 }
 
 func inferClockHealth(s ClockStatus) string {

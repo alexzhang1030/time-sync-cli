@@ -141,6 +141,35 @@ func TestReportSummary_PTPNotRunning(t *testing.T) {
 	}
 }
 
+func TestReportSummaryTreatsInactiveServicesAsExpectedWhenRoleDisablesThem(t *testing.T) {
+	r := &status.Report{
+		ManagementState: "managed",
+		ConfiguredRole:  "auto",
+		PTP:             status.PTPStatus{Detail: "ptp4l not running"},
+	}
+	out := r.Summary()
+	if !contains(out, "state: disabled by configured role") {
+		t.Fatalf("Summary missing role-aware PTP state:\n%s", out)
+	}
+	if contains(out, "(ptp4l not running)") {
+		t.Fatalf("Summary reports an expected inactive PTP service as a diagnostic:\n%s", out)
+	}
+
+	client := &status.Report{
+		ManagementState: "managed",
+		ConfiguredRole:  "client",
+		ConfiguredPTP:   true,
+		Chrony:          status.ChronyStatus{Detail: "chronyc -c tracking failed"},
+	}
+	clientOutput := client.Summary()
+	if !contains(clientOutput, "state: disabled by PTP client role") {
+		t.Fatalf("Summary missing role-aware Chrony state:\n%s", clientOutput)
+	}
+	if contains(clientOutput, "chronyc -c tracking failed") {
+		t.Fatalf("Summary reports an expected inactive Chrony service as a diagnostic:\n%s", clientOutput)
+	}
+}
+
 func TestReportSummary_PTPDetails(t *testing.T) {
 	r := &status.Report{
 		SchemaVersion:     "1.2",
@@ -277,7 +306,7 @@ func TestReportSummary_PTPClientShowsGrandmasterAsSystemSource(t *testing.T) {
 		"Observed discipline: ptp",
 		"System clock source: aabbcc.fffe.112233",
 		"Current offset: 0.000042 ms",
-		"current correction: -1.462872982 s",
+		"state: disabled by PTP client role",
 		"grandmaster offset: 0.000042 ms",
 	} {
 		if !contains(out, want) {
@@ -327,11 +356,13 @@ func TestReportSummary_MasterShowsPTPAndNTPOffsets(t *testing.T) {
 		"Current offset: 0.000091882 s",
 		"current correction: 0.000091882 s",
 		"port state: MASTER",
-		"grandmaster offset: 0.000015 ms",
 	} {
 		if !contains(out, want) {
 			t.Errorf("Summary missing %q:\n%s", want, out)
 		}
+	}
+	if contains(out, "grandmaster offset:") || contains(out, "master offset:") {
+		t.Fatalf("Summary exposes a slave accuracy metric for a grandmaster:\n%s", out)
 	}
 }
 

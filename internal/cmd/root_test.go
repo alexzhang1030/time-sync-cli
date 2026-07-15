@@ -74,6 +74,7 @@ func TestRenderStatusOutputJSON(t *testing.T) {
 		Source:            "aabbcc.fffe.112233",
 		Healthy:           true,
 		SystemClockSource: "aabbcc.fffe.112233",
+		Clock:             status.ClockStatus{PHCUnix: 1784102437, PHCUTCUnix: 1784102400},
 		Health: status.HealthSummary{
 			Overall:     status.HealthHealthy,
 			NTP:         status.HealthDisabled,
@@ -100,6 +101,9 @@ func TestRenderStatusOutputJSON(t *testing.T) {
 	}
 	if decoded.SystemClockSource != "aabbcc.fffe.112233" {
 		t.Fatalf("system clock source = %q", decoded.SystemClockSource)
+	}
+	if decoded.Clock.PHCUnix != 1784102437 || decoded.Clock.PHCUTCUnix != 1784102400 {
+		t.Fatalf("clock JSON = %+v", decoded.Clock)
 	}
 }
 
