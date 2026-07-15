@@ -222,7 +222,7 @@ func collectClock(ptp PTPStatus, includePHC bool) ClockStatus {
 	now := time.Now()
 	s := ClockStatus{
 		SystemUnix: now.Unix(),
-		Resolution: "PHC residual uses nanosecond samples; RTC snapshot has 1 s resolution",
+		Resolution: "PHC residual uses midpoint-estimated nanosecond samples; RTC snapshot has 1 s resolution",
 	}
 	rtc, err := readEpochFile("/sys/class/rtc/rtc0/since_epoch")
 	if err != nil {
@@ -256,6 +256,14 @@ func collectClock(ptp PTPStatus, includePHC bool) ClockStatus {
 			rawSkewNS := s.phcSampleSystemUnixNS - phcNS
 			s.PHCSystemSkew = formatSeconds(int64(time.Duration(rawSkewNS).Round(time.Second) / time.Second))
 			populatePHCResidual(&s, ptp, phcNS)
+
+			if cmpOut, cmpErr := exec.Command("phc_ctl", s.Iface, "cmp").CombinedOutput(); cmpErr == nil {
+				if correlatedOffsetNS, parseErr := parsePHCComparisonNS(string(cmpOut)); parseErr == nil {
+					s.PHCSystemSkew = formatSeconds(int64(time.Duration(correlatedOffsetNS).Round(time.Second) / time.Second))
+					populatePHCResidualFromOffset(&s, ptp, phcNS, correlatedOffsetNS)
+					s.Resolution = "PHC residual uses kernel-correlated PHC/system samples; RTC snapshot has 1 s resolution"
+				}
+			}
 		}
 	}
 	return s
@@ -280,6 +288,24 @@ func readEpochFile(path string) (int64, error) {
 func parsePHCTime(output string) (int64, error) {
 	value, err := ParsePHCTimeNS(output)
 	return value / int64(time.Second), err
+}
+
+func parsePHCComparisonNS(output string) (int64, error) {
+	const marker = "offset from CLOCK_REALTIME is "
+	idx := strings.Index(output, marker)
+	if idx < 0 {
+		return 0, fmt.Errorf("missing %q", marker)
+	}
+	fields := strings.Fields(output[idx+len(marker):])
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("missing clock offset")
+	}
+	value := strings.TrimSuffix(fields[0], "ns")
+	offset, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return offset, nil
 }
 
 // ParsePHCTimeNS extracts a nanosecond epoch from phc_ctl get output.

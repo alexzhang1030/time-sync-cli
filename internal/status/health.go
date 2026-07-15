@@ -195,6 +195,11 @@ func ptpOffsetNanoseconds(s PTPStatus) (float64, bool) {
 }
 
 func populatePHCResidual(s *ClockStatus, ptp PTPStatus, phcUnixNS int64) {
+	rawOffsetNS := s.phcSampleSystemUnixNS - phcUnixNS
+	populatePHCResidualFromOffset(s, ptp, phcUnixNS, rawOffsetNS)
+}
+
+func populatePHCResidualFromOffset(s *ClockStatus, ptp PTPStatus, phcUnixNS, rawOffsetNS int64) {
 	s.PHCTimeScale = "unknown"
 	if !ptp.TimePropertiesAvailable {
 		return
@@ -212,7 +217,10 @@ func populatePHCResidual(s *ClockStatus, ptp PTPStatus, phcUnixNS int64) {
 		s.PHCTimeScale = "UTC"
 	}
 	s.PHCUTCUnix = phcUTCUnixNS / int64(time.Second)
-	residual := s.phcSampleSystemUnixNS - phcUTCUnixNS
+	residual := rawOffsetNS
+	if ptp.PTPTimescale {
+		residual += int64(ptp.CurrentUTCOffset) * int64(time.Second)
+	}
 	s.PHCResidualNS = &residual
 	s.PHCResidual = formatClockResidual(residual)
 }

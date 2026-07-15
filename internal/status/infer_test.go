@@ -183,6 +183,21 @@ func TestPopulatePHCResidualNormalizesTAITime(t *testing.T) {
 	}
 }
 
+func TestPopulatePHCResidualFromCorrelatedOffset(t *testing.T) {
+	system := int64(1783162152)
+	clock := ClockStatus{}
+	ptp := PTPStatus{
+		TimePropertiesAvailable: true,
+		CurrentUTCOffset:        37,
+		CurrentUTCOffsetValid:   true,
+		PTPTimescale:            true,
+	}
+	populatePHCResidualFromOffset(&clock, ptp, (system+37)*int64(time.Second), -37*int64(time.Second)-2500)
+	if clock.PHCResidualNS == nil || *clock.PHCResidualNS != -2500 {
+		t.Fatalf("residual = %v", clock.PHCResidualNS)
+	}
+}
+
 func TestInferClockHealthRejectsEpochSystemClock(t *testing.T) {
 	health := inferClockHealth(ClockStatus{SystemUnix: 1038, RTCUnix: 1783162152})
 	if health != "false" {
@@ -403,5 +418,15 @@ func TestParsePHCTime(t *testing.T) {
 	}
 	if nanoseconds != 1783162369726269290 {
 		t.Fatalf("nanoseconds = %d", nanoseconds)
+	}
+}
+
+func TestParsePHCComparisonNS(t *testing.T) {
+	got, err := parsePHCComparisonNS("phc_ctl[30518.808]: offset from CLOCK_REALTIME is -37000002063ns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != -37000002063 {
+		t.Fatalf("got = %d, want -37000002063", got)
 	}
 }
