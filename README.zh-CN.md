@@ -98,7 +98,9 @@ sudo timesync apply master --iface eth0 --ntp-pool cn.pool.ntp.org --ntp-serve-c
 ### 开启 PTP Grandmaster（Master + PTP）
 
 ```bash
-sudo timesync apply master --iface eth0 --ptp
+sudo timesync apply master --iface <master-iface> --ptp \
+  --ntp-pool cn.pool.ntp.org \
+  --ntp-serve-cidr <ptp-cidr>
 ```
 
 请先确认硬件时间戳能力：
@@ -106,6 +108,29 @@ sudo timesync apply master --iface eth0 --ptp
 ```bash
 timesync doctor   # 查看各网卡 PTP 能力
 ```
+
+生成的 Grandmaster 会声明当前 TAI–UTC 偏移、保守的未知时钟精度（`0xFE`）以及 NTP 来源类型。每次 `ptp4l` 启动后，`timesync` 都会通过管理套接字发布 `currentUtcOffsetValid=1`，回读验证成功后服务进入 active。
+
+已配置 master 角色的主机升级后，先读取当前网卡和 NTP 参数：
+
+```bash
+sudo awk -F'"' '/"iface"/ {print $4}' /etc/timesync-cli/state.json
+sudo awk '$1 == "pool" || $1 == "allow" {print}' /etc/timesync-cli/chrony.conf
+```
+
+使用相同参数重新 apply，让新版 `ptp4l.conf` 和 systemd unit 生效：
+
+```bash
+sudo timesync apply master --iface <master-iface> --ptp \
+  --ntp-pool <existing-pool> \
+  --ntp-serve-cidr <existing-cidr> \
+  --yes
+
+sudo pmc -u -b 0 'GET GRANDMASTER_SETTINGS_NP'
+sudo timesync status
+```
+
+管理响应应包含 `currentUtcOffset 37`、`currentUtcOffsetValid 1` 和 `ptpTimescale 1`。下游客户端随后会显示 `PHC as UTC`、数值形式的 `PHC residual` 以及按角色判定的时钟健康度。
 
 ### 开启 NTP 从端（跟随上游）
 
@@ -210,13 +235,20 @@ sudo systemctl start phc2sys
 timesync status
 ```
 
-生成的 PTP 角色也会把这条预防链路写入 `ptp4l.service`：
+PTP client 和 master 角色会把这条恢复链路写入 `ptp4l.service`：
 
 ```ini
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
 ```
 
-PTP master 和 auto 角色使用更严格的授时门禁：
+PTP master 角色会在授时前通过 RTC 修复陈旧系统时间，并在 `ptp4l` 启动后发布已验证的 GM 时间属性：
+
+```ini
+ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
+ExecStartPost=/usr/bin/timesync publish-gm-time-properties --timeout 30s
+```
+
+Auto PTP 监测会在 `ptp4l` 启动前要求可信系统时间：
 
 ```ini
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --require-trusted-system-clock

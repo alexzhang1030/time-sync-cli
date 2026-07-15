@@ -68,6 +68,25 @@ sudo timesync apply client --iface <slave-a-iface> --source <master-ip> --ptp --
 sudo timesync apply client --iface <slave-b-iface> --source <master-ip> --ptp --yes
 ```
 
+## Re-apply an Existing PTP Master After Upgrade
+
+Read the previously applied interface, NTP pool, and served CIDR:
+
+```bash
+sudo awk -F'"' '/"iface"/ {print $4}' /etc/timesync-cli/state.json
+sudo awk '$1 == "pool" || $1 == "allow" {print}' /etc/timesync-cli/chrony.conf
+```
+
+Install the updated generated configuration and systemd unit with the same values:
+
+```bash
+sudo timesync apply master --iface <master-iface> --ptp --ntp-pool <existing-pool> --ntp-serve-cidr <existing-cidr> --yes
+sudo pmc -u -b 0 'GET GRANDMASTER_SETTINGS_NP'
+sudo timesync status
+```
+
+Require `currentUtcOffset 37`, `currentUtcOffsetValid 1`, and `ptpTimescale 1` in the management response. The generated `ptp4l.service` republishes and verifies these properties after every start.
+
 ## Verify
 
 Run after every apply:

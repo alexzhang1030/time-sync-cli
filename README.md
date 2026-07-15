@@ -98,7 +98,9 @@ This generates chrony config with an upstream NTP pool, `local stratum 8`, and `
 ### Enable PTP grandmaster (master + PTP)
 
 ```bash
-sudo timesync apply master --iface eth0 --ptp
+sudo timesync apply master --iface <master-iface> --ptp \
+  --ntp-pool cn.pool.ntp.org \
+  --ntp-serve-cidr <ptp-cidr>
 ```
 
 Verify hardware timestamping first:
@@ -106,6 +108,29 @@ Verify hardware timestamping first:
 ```bash
 timesync doctor   # check PTP capabilities per interface
 ```
+
+The generated grandmaster advertises the current TAI–UTC offset, conservative unknown clock accuracy (`0xFE`), and NTP as its source type. After every `ptp4l` start, `timesync` publishes `currentUtcOffsetValid=1` through the management socket and verifies the result before the service becomes active.
+
+After upgrading a host that already has the master role, inspect the applied interface and existing NTP values:
+
+```bash
+sudo awk -F'"' '/"iface"/ {print $4}' /etc/timesync-cli/state.json
+sudo awk '$1 == "pool" || $1 == "allow" {print}' /etc/timesync-cli/chrony.conf
+```
+
+Re-apply the same master role so the updated `ptp4l.conf` and systemd unit are installed:
+
+```bash
+sudo timesync apply master --iface <master-iface> --ptp \
+  --ntp-pool <existing-pool> \
+  --ntp-serve-cidr <existing-cidr> \
+  --yes
+
+sudo pmc -u -b 0 'GET GRANDMASTER_SETTINGS_NP'
+sudo timesync status
+```
+
+The management response should contain `currentUtcOffset 37`, `currentUtcOffsetValid 1`, and `ptpTimescale 1`. Downstream clients then report `PHC as UTC`, a numeric `PHC residual`, and role-aware clock health.
 
 ### Enable NTP client (follow upstream)
 
@@ -210,13 +235,20 @@ sudo systemctl start phc2sys
 timesync status
 ```
 
-Generated PTP roles also install this prevention path into `ptp4l.service`:
+PTP client and master roles install this recovery path into `ptp4l.service`:
 
 ```ini
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
 ```
 
-PTP master and auto roles use a stricter serving gate:
+PTP master roles recover a stale system clock from RTC before serving and publish verified GM time properties after `ptp4l` starts:
+
+```ini
+ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
+ExecStartPost=/usr/bin/timesync publish-gm-time-properties --timeout 30s
+```
+
+Auto PTP monitoring requires a trusted system clock before `ptp4l` starts:
 
 ```ini
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --require-trusted-system-clock
