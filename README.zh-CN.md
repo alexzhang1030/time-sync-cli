@@ -109,7 +109,7 @@ sudo timesync apply master --iface <master-iface> --ptp \
 timesync doctor   # 查看各网卡 PTP 能力
 ```
 
-生成的 Grandmaster 会声明当前 TAI–UTC 偏移、保守的未知时钟精度（`0xFE`）以及 NTP 来源类型。`phc2sys` 把 PHC 校准到 `System + TAI–UTC` 后，`timesync` 会通过管理套接字发布 `currentUtcOffsetValid=1` 并回读验证。后续 `ptp4l` 重启时，运行中守卫会重新发布该数据。
+生成的 Grandmaster 会声明当前 TAI–UTC 偏移、保守的未知时钟精度（`0xFE`）以及 NTP 来源类型。PTP profile 以 8 Hz 运行 Sync 与 DelayReq（`logSyncInterval=-3`、`logMinDelayReqInterval=-3`），为伺服提供更密集的样本。`phc2sys` 把 PHC 校准到 `System + TAI–UTC` 后，`timesync` 会通过管理套接字发布 `currentUtcOffsetValid=1` 并回读验证。后续 `ptp4l` 重启时，运行中守卫会重新发布该数据。
 
 已配置 master 角色的主机升级后，先读取当前网卡和 NTP 参数：
 
@@ -174,7 +174,7 @@ timesync tui
 | 路径 | 机制 | 方向 |
 |------|------|------|
 | NTP（chrony） | 生成配置中的 `rtcsync` | 系统时钟 → RTC（周期性回写） |
-| PTP Client（linuxptp） | `phc2sys -s <iface> -w -S 1.0` | PHC -> 系统时钟；`-w` 等待 ptp4l；`-S 1.0` 直接跳正大于 1 秒的初始偏差 |
+| PTP Client（linuxptp） | `phc2sys -s <iface> -w -R 8 -N 5 -S 1.0` | PHC -> 系统时钟；`-R 8` 每秒更新八次；`-N 5` 从五次 PHC 读取中选取最快值；`-S 1.0` 直接跳正大于 1 秒的初始偏差 |
 | PTP Master（linuxptp） | `phc2sys -s CLOCK_REALTIME -c <iface> -w -S 1.0` | 系统时钟 -> PHC；`-w` 等待 ptp4l；`-S 1.0` 直接跳正大于 1 秒的初始偏差 |
 
 同步成功后：

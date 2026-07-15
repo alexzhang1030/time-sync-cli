@@ -109,7 +109,7 @@ Verify hardware timestamping first:
 timesync doctor   # check PTP capabilities per interface
 ```
 
-The generated grandmaster advertises the current TAI–UTC offset, conservative unknown clock accuracy (`0xFE`), and NTP as its source type. Once `phc2sys` has aligned the PHC to `System + TAI–UTC`, `timesync` publishes `currentUtcOffsetValid=1` through the management socket and verifies the result. The runtime guard republishes the data after a later `ptp4l` restart.
+The generated grandmaster advertises the current TAI–UTC offset, conservative unknown clock accuracy (`0xFE`), and NTP as its source type. The PTP profile runs Sync and DelayReq at 8 Hz (`logSyncInterval=-3`, `logMinDelayReqInterval=-3`) for faster servo updates. Once `phc2sys` has aligned the PHC to `System + TAI–UTC`, `timesync` publishes `currentUtcOffsetValid=1` through the management socket and verifies the result. The runtime guard republishes the data after a later `ptp4l` restart.
 
 After upgrading a host that already has the master role, inspect the applied interface and existing NTP values:
 
@@ -174,7 +174,7 @@ There are three related clocks on a typical Linux device:
 | Path | Mechanism | Direction |
 |------|-----------|-------------|
 | NTP (chrony) | `rtcsync` in generated chrony config | System clock → RTC (periodic write-back) |
-| PTP client (linuxptp) | `phc2sys -s <iface> -w -S 1.0` | PHC -> system clock; `-w` waits for ptp4l; `-S 1.0` steps large initial offsets |
+| PTP client (linuxptp) | `phc2sys -s <iface> -w -R 8 -N 5 -S 1.0` | PHC -> system clock; `-R 8` applies eight updates per second; `-N 5` selects the fastest of five PHC reads; `-S 1.0` steps large initial offsets |
 | PTP master (linuxptp) | `phc2sys -s CLOCK_REALTIME -c <iface> -w -S 1.0` | System clock -> PHC; `-w` waits for ptp4l; `-S 1.0` steps large initial offsets |
 
 So after a successful sync:
