@@ -157,6 +157,7 @@ func TestPlanMaster_PTP(t *testing.T) {
 				"logAnnounceInterval   0",
 				"logSyncInterval       -3",
 				"logMinDelayReqInterval -3",
+				"tx_timestamp_timeout  100",
 				"utc_offset            37",
 				"clockAccuracy         0xFE",
 				"offsetScaledLogVariance 0xFFFF",

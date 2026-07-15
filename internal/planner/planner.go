@@ -371,6 +371,7 @@ priority1             128
 priority2             128
 domainNumber          0
 time_stamping         hardware
+tx_timestamp_timeout  100
 network_transport     UDPv4
 delay_mechanism       E2E
 unicast_listen        1
