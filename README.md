@@ -9,7 +9,7 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Area | What works |
 |------|------------|
 | Detection | `timesync doctor` — OS, systemd, required binaries, interfaces, PTP hardware timestamping via `ethtool -T` |
-| Status | `timesync status` — color dashboard in a terminal; stable plain text in pipes; configured role, NTP/PTP offset and source, clock health, port state, path delay, systemd unit state |
+| Status | `timesync status` — role-aware terminal dashboard; stable plain text in pipes; JSON schema `1.2`; clock source/flow, NTP sync, PTP link/accuracy, clock discipline, runtime guard, and actual systemd unit state |
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups, `--yes` to confirm overwrites |
 | Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply with the same status dashboard; falls back to numbered prompts on non-TTY |
 | RTC write-back | `rtcsync` in chrony configs; PTP runtime guard writes trusted system time to RTC |
@@ -169,7 +169,21 @@ pmc -u -b 0 'GET TIME_STATUS_NP'   # raw PTP offset (linuxptp)
 timedatectl status        # system clock + RTC sync flag
 ```
 
-`timesync status` selects the dashboard for interactive terminals and plain text when stdout is redirected. `--output auto|fancy|plain|json` makes the format explicit, and `NO_COLOR` keeps the dashboard color-free. The report also includes system/RTC/PHC Unix time and skew. It marks clock health false when system time is near epoch, RTC is near epoch, RTC differs from system time by more than 1 hour, or PHC differs from system time by more than 120 seconds. Configured PTP client/master overall health requires the expected PTP port state plus active `phc2sys`, so stale NTP or inactive PHC-to-system sync cannot mask a broken configured PTP role.
+`timesync status` selects the dashboard for interactive terminals and plain text when stdout is redirected. `--output auto|fancy|plain|json` makes the format explicit, and `NO_COLOR` keeps the dashboard color-free. The report separates role configuration, observed clock writer, source flow, service/link state, measured accuracy, clock validity, discipline, and runtime guard state.
+
+The dashboard evaluates each configured role by its clock-writer contract:
+
+| Role | System clock source and flow | Required health |
+|------|------------------------------|-----------------|
+| `auto` | NTP → system; optional PTP monitor | NTP sync and clock |
+| `master --ptp` | NTP → system → PHC → PTP clients | NTP sync, PTP `MASTER`, clock, `phc2sys`, guard |
+| `client --ptp` | PTP grandmaster → PHC → system | PTP `SLAVE`, PTP accuracy, clock, `phc2sys`, guard |
+
+Health has separate `healthy`, `degraded`, `unhealthy`, `unknown`, `disabled`, and `unmanaged` states. NTP current correction is healthy through 100 ms and degraded through 1 s. PTP grandmaster offset and normalized PHC residual are healthy through 10 ms and degraded through 1 s. Epoch clocks and RTC/system differences above 1 hour are unhealthy. A query failure produces `unknown`, preserving the distinction between missing evidence and a measured fault.
+
+PTP hardware clocks commonly use the TAI time scale while the Linux system clock displays UTC, matching the [linuxptp `phc2sys` clock-timescale model](https://www.linuxptp.org/documentation/phc2sys/). `status` reads `currentUtcOffset` and its validity from `TIME_PROPERTIES_DATA_SET`, converts the PHC sample to UTC, and reports `PHC residual = System − PHC(UTC)`. A raw difference near the current TAI–UTC offset is expected. JSON keeps `phc_system_skew` as a raw compatibility field and adds `phc_residual_ns`, `phc_time_scale`, `tai_utc_offset`, and `tai_utc_offset_valid` for correct automation.
+
+JSON output uses additive schema `1.2`. Existing top-level fields such as `healthy`, `ntp_health`, `ptp_health`, `clock_health`, `role`, `source`, and `offset` remain available. New consumers should use `health.*`, `system_clock_source`, `clock_flow`, `management_state`, normalized clock fields, and the structured systemd unit records.
 
 ### Recover from a 1970 / epoch clock reset
 
@@ -214,7 +228,7 @@ Generated PTP client roles also gate `phc2sys` startup:
 ExecStartPre=/usr/bin/timesync wait-ptp --timeout 30s
 ```
 
-PTP client roles also install a runtime guard timer:
+PTP client and master roles install a runtime guard timer:
 
 ```ini
 ExecStart=/usr/bin/timesync guard-ptp
@@ -241,7 +255,7 @@ The guard keeps `phc2sys` stopped while PTP health is red. When PTP is healthy, 
 1. **Detection (`doctor`)** — reads `/etc/os-release`, checks systemd, locates binaries, lists `/sys/class/net` interfaces, runs `ethtool -T` for PTP hardware timestamping.
 2. **Planning (`apply --dry-run`)** — renders role-specific chrony/ptp4l/phc2sys configs, the chrony drop-in, and PTP systemd units.
 3. **Apply (`apply` without `--dry-run`)** — backs up existing files, writes configs, saves `state.json`, runs `systemctl daemon-reload`, enables and restarts affected units.
-4. **Status** — read-only: `systemctl is-active`, `chronyc -c tracking`, configured role from `state.json`.
+4. **Status** — read-only: `systemctl show` for actual unit/load/active/enable state, `chronyc -c tracking`, `pmc` port/current/time/time-properties data sets, PHC/RTC samples, and configured role from `state.json`.
 
 ### Generated layout
 
@@ -344,7 +358,7 @@ sudo install -m 0755 timesync /usr/bin/timesync
 
 ```bash
 timesync doctor                                          # detect OS, tools, interfaces, PTP caps
-timesync status                                          # sync health, role, NTP/PTP offset, port state
+timesync status                                          # role-aware health, source flow, NTP/PTP accuracy, guards
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run] [--yes]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run] [--yes]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run] [--yes]

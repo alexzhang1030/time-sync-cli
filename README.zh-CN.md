@@ -9,7 +9,7 @@
 | 领域 | 能力 |
 |------|------|
 | 检测 | `timesync doctor` — OS、systemd、依赖二进制、网卡、通过 `ethtool -T` 检测 PTP 硬件时间戳 |
-| 状态 | `timesync status` — 终端彩色仪表板、管道稳定纯文本，以及已配置角色、NTP/PTP 偏移与源、时钟健康度、端口状态、路径延迟、systemd unit 状态 |
+| 状态 | `timesync status` — 角色感知终端仪表板、管道稳定纯文本、JSON `1.2` schema，以及时钟来源/链路、NTP 同步、PTP 链路/精度、时钟驯服、运行守卫和真实 systemd unit 状态 |
 | 配置 | `timesync apply auto\|master\|client`，支持 `--dry-run`、可选 `--ptp`、文件备份、`--yes` 确认覆盖 |
 | 交互配置 | `timesync tui` — 方向键菜单（doctor/status/apply）并复用状态仪表板；非 TTY 时回退为编号问答 |
 | RTC 回写 | chrony 配置中的 `rtcsync`；PTP runtime guard 将可信系统时间写回 RTC |
@@ -169,7 +169,21 @@ pmc -u -b 0 'GET TIME_STATUS_NP'   # 原始 PTP 偏移（linuxptp）
 timedatectl status        # 系统时钟 + RTC 同步标志
 ```
 
-`timesync status` 在交互终端中选择仪表板，stdout 重定向时选择纯文本。`--output auto|fancy|plain|json` 可显式指定格式，`NO_COLOR` 会保留无颜色的仪表板布局。状态同时显示系统/RTC/PHC 的 Unix 时间和偏差。系统时间接近 epoch、RTC 接近 epoch、RTC 与系统时间相差超过 1 小时、或 PHC 与系统时间相差超过 120 秒时，clock health 会变成 false。已配置的 PTP client/master 整体健康要求符合角色预期的 PTP 端口状态和 active `phc2sys`，因此残留 NTP 或 PHC 到系统时钟同步中断无法掩盖已配置 PTP 角色的故障。
+`timesync status` 在交互终端中选择仪表板，stdout 重定向时选择纯文本。`--output auto|fancy|plain|json` 可显式指定格式，`NO_COLOR` 会保留无颜色的仪表板布局。报告会分别展示角色配置、观测到的时钟写入者、来源链路、服务/链路状态、测量精度、时钟有效性、驯服链路和运行守卫状态。
+
+仪表板按各角色的时钟写入契约判定健康度：
+
+| 角色 | 系统时钟来源与链路 | 必需健康项 |
+|------|--------------------|------------|
+| `auto` | NTP → 系统；PTP 作为可选监测 | NTP 同步、系统时钟 |
+| `master --ptp` | NTP → 系统 → PHC → PTP 客户端 | NTP 同步、PTP `MASTER`、系统时钟、`phc2sys`、守卫 |
+| `client --ptp` | PTP Grandmaster → PHC → 系统 | PTP `SLAVE`、PTP 精度、系统时钟、`phc2sys`、守卫 |
+
+健康状态分为 `healthy`、`degraded`、`unhealthy`、`unknown`、`disabled` 和 `unmanaged`。NTP 当前修正量在 100 ms 内为 healthy，1 s 内为 degraded；PTP Grandmaster 偏移和归一化 PHC 残差在 10 ms 内为 healthy，1 s 内为 degraded；epoch 时钟和超过 1 小时的 RTC/系统差值为 unhealthy。查询失败映射为 `unknown`，用于区分证据缺失和已测量故障。
+
+PTP 硬件时钟通常采用 TAI 时间尺度，Linux 系统时钟显示 UTC，具体模型参见 [linuxptp `phc2sys` 时钟时间尺度文档](https://www.linuxptp.org/documentation/phc2sys/)。`status` 从 `TIME_PROPERTIES_DATA_SET` 动态读取 `currentUtcOffset` 及其有效位，把 PHC 采样转换为 UTC，再报告 `PHC residual = System − PHC(UTC)`。接近当前 TAI–UTC 差值的原始差值属于预期结果。JSON 保留 `phc_system_skew` 原始兼容字段，并增加 `phc_residual_ns`、`phc_time_scale`、`tai_utc_offset` 和 `tai_utc_offset_valid`，供自动化读取准确语义。
+
+JSON 输出使用增量 schema `1.2`。原有顶层字段 `healthy`、`ntp_health`、`ptp_health`、`clock_health`、`role`、`source` 和 `offset` 继续可用。新消费方推荐使用 `health.*`、`system_clock_source`、`clock_flow`、`management_state`、归一化时钟字段和结构化 systemd unit 记录。
 
 ### 从 1970 / epoch 时钟回退中恢复
 
@@ -214,7 +228,7 @@ ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --require-trusted-system-
 ExecStartPre=/usr/bin/timesync wait-ptp --timeout 30s
 ```
 
-PTP client 角色还会安装运行中守卫 timer：
+PTP client 和 master 角色会安装运行中守卫 timer：
 
 ```ini
 ExecStart=/usr/bin/timesync guard-ptp
@@ -241,7 +255,7 @@ OnUnitActiveSec=5s
 1. **检测（`doctor`）** — 读取 `/etc/os-release`，检查 systemd，定位二进制，列出 `/sys/class/net` 网卡，对每块网卡执行 `ethtool -T` 检测 PTP 硬件时间戳。
 2. **规划（`apply --dry-run`）** — 按角色渲染 chrony/ptp4l/phc2sys 配置、chrony drop-in 和 PTP systemd unit。
 3. **应用（`apply` 无 `--dry-run`）** — 备份已有文件，写入配置，保存 `state.json`，执行 `systemctl daemon-reload`，enable 并 restart 相关 unit。
-4. **状态（`status`）** — 只读：`systemctl is-active`、`chronyc -c tracking`、从 `state.json` 读取已配置角色。
+4. **状态（`status`）** — 只读：通过 `systemctl show` 获取真实 unit/load/active/enable 状态，读取 `chronyc -c tracking`、`pmc` port/current/time/time-properties 数据集、PHC/RTC 采样，以及 `state.json` 中的已配置角色。
 
 ### 生成目录结构
 
@@ -344,7 +358,7 @@ sudo install -m 0755 timesync /usr/bin/timesync
 
 ```bash
 timesync doctor                                          # 检测 OS、工具、网卡、PTP 能力
-timesync status                                          # 同步健康度、角色、NTP/PTP 偏移、端口状态
+timesync status                                          # 角色感知健康度、来源链路、NTP/PTP 精度、守卫状态
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run] [--yes]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run] [--yes]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run] [--yes]
