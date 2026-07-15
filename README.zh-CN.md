@@ -9,9 +9,9 @@
 | 领域 | 能力 |
 |------|------|
 | 检测 | `timesync doctor` — OS、systemd、依赖二进制、网卡、通过 `ethtool -T` 检测 PTP 硬件时间戳 |
-| 状态 | `timesync status` — 已配置角色、NTP/PTP 偏移与源、时钟健康度、端口状态、路径延迟、systemd unit 状态 |
+| 状态 | `timesync status` — 终端彩色仪表板、管道稳定纯文本，以及已配置角色、NTP/PTP 偏移与源、时钟健康度、端口状态、路径延迟、systemd unit 状态 |
 | 配置 | `timesync apply auto\|master\|client`，支持 `--dry-run`、可选 `--ptp`、文件备份、`--yes` 确认覆盖 |
-| 交互配置 | `timesync tui` — 方向键菜单（doctor/status/apply）；非 TTY 时回退为编号问答 |
+| 交互配置 | `timesync tui` — 方向键菜单（doctor/status/apply）并复用状态仪表板；非 TTY 时回退为编号问答 |
 | RTC 回写 | chrony 配置中的 `rtcsync`；PTP runtime guard 将可信系统时间写回 RTC |
 | 时钟修复 | `timesync repair-clock` — 系统时间回到 epoch 后，用 RTC 快速恢复系统时钟和 PHC |
 | 发布 | [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) 提供 `linux/amd64`、`linux/arm64` 预编译包及 `.deb`/`.rpm` |
@@ -161,13 +161,15 @@ timesync tui
 ### 验证 RTC / 同步状态
 
 ```bash
-timesync status           # NTP + PTP 同步健康度、端口状态、偏移、路径延迟
+timesync status                  # TTY 中显示彩色仪表板
+timesync status --output plain   # 日志与管道使用稳定纯文本
+timesync status --output json    # 自动化使用结构化输出
 chronyc tracking          # NTP 偏移与参考源
 pmc -u -b 0 'GET TIME_STATUS_NP'   # 原始 PTP 偏移（linuxptp）
 timedatectl status        # 系统时钟 + RTC 同步标志
 ```
 
-`timesync status` 也会显示系统/RTC/PHC 的 Unix 时间和偏差。系统时间接近 epoch、RTC 接近 epoch、RTC 与系统时间相差超过 1 小时、或 PHC 与系统时间相差超过 120 秒时，clock health 会变成 false。已配置的 PTP client/master 整体健康要求符合角色预期的 PTP 端口状态和 active `phc2sys`，因此残留 NTP 或 PHC 到系统时钟同步中断无法掩盖已配置 PTP 角色的故障。
+`timesync status` 在交互终端中选择仪表板，stdout 重定向时选择纯文本。`--output auto|fancy|plain|json` 可显式指定格式，`NO_COLOR` 会保留无颜色的仪表板布局。状态同时显示系统/RTC/PHC 的 Unix 时间和偏差。系统时间接近 epoch、RTC 接近 epoch、RTC 与系统时间相差超过 1 小时、或 PHC 与系统时间相差超过 120 秒时，clock health 会变成 false。已配置的 PTP client/master 整体健康要求符合角色预期的 PTP 端口状态和 active `phc2sys`，因此残留 NTP 或 PHC 到系统时钟同步中断无法掩盖已配置 PTP 角色的故障。
 
 ### 从 1970 / epoch 时钟回退中恢复
 

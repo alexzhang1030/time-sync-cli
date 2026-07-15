@@ -62,7 +62,8 @@ func doctorCmd() *cobra.Command {
 }
 
 func statusCmd() *cobra.Command {
-	return &cobra.Command{
+	var outputFormat string
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Report sync health, role, NTP/PTP offset, port state, and service state",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -70,10 +71,23 @@ func statusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Print(report.Summary())
-			return nil
+			writer := cmd.OutOrStdout()
+			output, err := renderStatusOutput(
+				report,
+				outputFormat,
+				writerSupportsFancy(writer),
+				writerSupportsColor(writer),
+				statusOutputWidth(),
+			)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprint(writer, output)
+			return err
 		},
 	}
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "auto", "Output format: auto, fancy, plain, or json")
+	return cmd
 }
 
 func applyCmd() *cobra.Command {

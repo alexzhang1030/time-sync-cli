@@ -9,9 +9,9 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Area | What works |
 |------|------------|
 | Detection | `timesync doctor` — OS, systemd, required binaries, interfaces, PTP hardware timestamping via `ethtool -T` |
-| Status | `timesync status` — configured role, NTP/PTP offset and source, clock health, port state, path delay, systemd unit state |
+| Status | `timesync status` — color dashboard in a terminal; stable plain text in pipes; configured role, NTP/PTP offset and source, clock health, port state, path delay, systemd unit state |
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups, `--yes` to confirm overwrites |
-| Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply; falls back to numbered prompts on non-TTY |
+| Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply with the same status dashboard; falls back to numbered prompts on non-TTY |
 | RTC write-back | `rtcsync` in chrony configs; PTP runtime guard writes trusted system time to RTC |
 | Clock repair | `timesync repair-clock` — recover system time and PHC from RTC after an epoch reset |
 | Releases | Pre-built `linux/amd64` and `linux/arm64` binaries plus `.deb`/`.rpm` on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
@@ -161,13 +161,15 @@ So after a successful sync:
 ### Verify RTC / sync state
 
 ```bash
-timesync status           # NTP + PTP sync health, port state, offset, path delay
+timesync status                  # color dashboard on a TTY
+timesync status --output plain   # stable human-readable text for logs and pipes
+timesync status --output json    # structured output for automation
 chronyc tracking          # NTP offset and reference
 pmc -u -b 0 'GET TIME_STATUS_NP'   # raw PTP offset (linuxptp)
 timedatectl status        # system clock + RTC sync flag
 ```
 
-`timesync status` also reports system/RTC/PHC Unix time and skew. It marks clock health false when system time is near epoch, RTC is near epoch, RTC differs from system time by more than 1 hour, or PHC differs from system time by more than 120 seconds. Configured PTP client/master overall health requires the expected PTP port state plus active `phc2sys`, so stale NTP or inactive PHC-to-system sync cannot mask a broken configured PTP role.
+`timesync status` selects the dashboard for interactive terminals and plain text when stdout is redirected. `--output auto|fancy|plain|json` makes the format explicit, and `NO_COLOR` keeps the dashboard color-free. The report also includes system/RTC/PHC Unix time and skew. It marks clock health false when system time is near epoch, RTC is near epoch, RTC differs from system time by more than 1 hour, or PHC differs from system time by more than 120 seconds. Configured PTP client/master overall health requires the expected PTP port state plus active `phc2sys`, so stale NTP or inactive PHC-to-system sync cannot mask a broken configured PTP role.
 
 ### Recover from a 1970 / epoch clock reset
 

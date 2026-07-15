@@ -55,8 +55,8 @@ type doctorResultMsg struct {
 }
 
 type statusResultMsg struct {
-	text string
-	err  error
+	report *status.Report
+	err    error
 }
 
 type detectResultMsg struct {
@@ -75,6 +75,7 @@ type appModel struct {
 	viewport viewport.Model
 	content  string
 	loading  bool
+	status   *status.Report
 
 	applyStep     applyStep
 	applyCursor   int
@@ -144,6 +145,9 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.viewport.Width = msg.Width - 2
 		m.viewport.Height = msg.Height - 6
+		if m.status != nil {
+			m.content = m.status.FancySummary(status.RenderOptions{Color: true, Width: m.viewport.Width})
+		}
 		if m.content != "" {
 			m.viewport.SetContent(m.content)
 		}
@@ -173,9 +177,12 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusResultMsg:
 		m.loading = false
-		m.content = msg.text
 		if msg.err != nil {
 			m.finalErr = msg.err
+			m.content = fmt.Sprintf("Status failed: %v\n", msg.err)
+		} else {
+			m.status = msg.report
+			m.content = msg.report.FancySummary(status.RenderOptions{Color: true, Width: m.viewport.Width})
 		}
 		m.viewport.SetContent(m.content)
 		return m, nil
@@ -242,6 +249,7 @@ func (m appModel) updateMain(msg tea.KeyMsg) (appModel, tea.Cmd) {
 			m.screen = screenStatus
 			m.loading = true
 			m.content = ""
+			m.status = nil
 			return m, runStatusCmd
 		case 2:
 			m.screen = screenApply
@@ -275,6 +283,7 @@ func (m appModel) handleBack(msg tea.KeyMsg) (appModel, tea.Cmd) {
 		}
 		m.screen = screenMain
 		m.content = ""
+		m.status = nil
 		return m, nil
 	}
 	return m, nil
@@ -631,9 +640,9 @@ func runDoctorCmd() tea.Msg {
 func runStatusCmd() tea.Msg {
 	report, err := status.Collect()
 	if err != nil {
-		return statusResultMsg{text: fmt.Sprintf("Status failed: %v\n", err), err: err}
+		return statusResultMsg{err: err}
 	}
-	return statusResultMsg{text: report.Summary(), err: nil}
+	return statusResultMsg{report: report}
 }
 
 func runDetectCmd() tea.Msg {
