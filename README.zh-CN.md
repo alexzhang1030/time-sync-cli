@@ -13,7 +13,9 @@
 | 配置 | `timesync apply auto\|master\|client`，支持 `--dry-run`、可选 `--ptp`、文件备份、`--yes` 确认覆盖 |
 | 交互配置 | `timesync tui` — 方向键菜单（doctor/status/apply）并复用状态仪表板；非 TTY 时回退为编号问答 |
 | RTC 回写 | chrony 配置中的 `rtcsync`；PTP runtime guard 将可信系统时间写回 RTC |
-| 时钟修复 | `timesync repair-clock` — 系统时间回到 epoch 后，用 RTC 快速恢复系统时钟和 PHC |
+| 时钟修复 | `timesync repair-clock` — 系统时间回到 epoch 后，用 RTC 快速恢复系统时钟和 PHC；PTP master 还会等待 PHC 对齐并发布有效的 GM 时间属性 |
+| GM 属性发布 | `timesync publish-gm-time-properties` — 确保 `phc2sys` 已将 PHC 对齐，再在 PTP Grandmaster 上发布并验证 `currentUtcOffsetValid` |
+| 运行守卫 | `timesync guard-ptp` — 周期性守卫，管理 `phc2sys`、回写 RTC，并在 PTP master 丢失 `currentUtcOffsetValid` 时自动恢复 |
 | 发布 | [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) 提供 `linux/amd64`、`linux/arm64` 预编译包及 `.deb`/`.rpm` |
 
 ## NTP 和 PTP 是什么？
@@ -109,7 +111,9 @@ sudo timesync apply master --iface <master-iface> --ptp \
 timesync doctor   # 查看各网卡 PTP 能力
 ```
 
-生成的 Grandmaster 会声明当前 TAI–UTC 偏移、保守的未知时钟精度（`0xFE`）以及 NTP 来源类型。PTP profile 以 8 Hz 运行 Sync 与 DelayReq（`logSyncInterval=-3`、`logMinDelayReqInterval=-3`），为伺服提供更密集的样本。`phc2sys` 把 PHC 校准到 `System + TAI–UTC` 后，`timesync` 会通过管理套接字发布 `currentUtcOffsetValid=1` 并回读验证。后续 `ptp4l` 重启时，运行中守卫会重新发布该数据。
+生成的 Grandmaster 会声明当前 TAI–UTC 偏移、保守的未知时钟精度（`0xFE`）以及 NTP 来源类型。PTP profile 以 8 Hz 运行 Sync 与 DelayReq（`logSyncInterval=-3`、`logMinDelayReqInterval=-3`），为伺服提供更密集的样本。
+
+`phc2sys` 把 PHC 校准到 `System + TAI–UTC` 后，`timesync` 会通过管理套接字发布 `currentUtcOffsetValid=1` 并回读验证。`repair-clock` 在 master 上、手动运行 `publish-gm-time-properties`、以及周期性 `guard-ptp` 检测到 valid 位丢失时，都会自动执行这一发布。运行中守卫在 `phc2sys` 已在运行但 PHC 不再对齐时也会重启 `phc2sys`，使 master 在 epoch 启动或系统时间跳变后无需人工干预即可恢复。
 
 已配置 master 角色的主机升级后，先读取当前网卡和 NTP 参数：
 
@@ -241,11 +245,17 @@ PTP client 和 master 角色会把这条恢复链路写入 `ptp4l.service`：
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
 ```
 
-PTP master 角色会在授时前通过 RTC 修复陈旧系统时间，并在 `phc2sys` 校准 PHC 后发布已验证的 GM 时间属性：
+PTP master 角色会在授时前通过 RTC 修复陈旧系统时间，等待 `phc2sys` 将 PHC 对齐到 TAI，然后发布已验证的 GM 时间属性，让下游客户端看到有效的 UTC 偏移：
 
 ```ini
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
 ExecStartPost=/usr/bin/timesync publish-gm-time-properties --timeout 30s
+```
+
+`publish-gm-time-properties` 也可以在 `ptp4l` 或 `phc2sys` 重启后手动运行：
+
+```bash
+sudo timesync publish-gm-time-properties --timeout 30s
 ```
 
 Auto PTP 监测会在 `ptp4l` 启动前要求可信系统时间：
@@ -267,7 +277,9 @@ ExecStart=/usr/bin/timesync guard-ptp
 OnUnitActiveSec=5s
 ```
 
-当 PTP 健康度变红时，守卫会保持 `phc2sys` 停止。PTP 健康时，守卫会启动或保持 `phc2sys` 运行，让健康 PHC 修复异常系统时钟。当系统时间与 PHC 接近但 RTC 陈旧时，守卫会把可信系统时间写回 RTC。守卫执行保护动作后会正常退出并记录动作日志，因此周期 timer 在长时间故障期间仍会持续运行。
+当 PTP 健康度变红时，守卫会保持 `phc2sys` 停止。PTP 健康时，守卫会启动或保持 `phc2sys` 运行，让健康 PHC 修复异常系统时钟。当系统时间与 PHC 接近但 RTC 陈旧时，守卫会把可信系统时间写回 RTC。
+
+在 PTP master 上，如果 `currentUtcOffsetValid` 变为 false，守卫会执行完整恢复：清除 systemd 陈旧 failed 状态、确保 `chrony` 运行、启动或重启 `phc2sys`、等待 PHC 残差进入 1 秒以内，然后再次发布 GM 时间属性。守卫执行保护动作后会正常退出并记录动作日志，因此周期 timer 在长时间故障期间仍会持续运行。
 
 ## 实现原理
 
@@ -394,7 +406,9 @@ timesync status                                          # 角色感知健康度
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run] [--yes]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run] [--yes]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run] [--yes]
-sudo timesync repair-clock [--iface eth0]                 # 系统时间回到 epoch 后从 RTC 恢复系统时钟和 PHC
+sudo timesync repair-clock [--iface eth0]                 # 系统时间回到 epoch 后从 RTC 恢复系统时钟和 PHC；master 还会对齐 PHC 并发布 GM 属性
+sudo timesync publish-gm-time-properties [--config /etc/timesync-cli/ptp4l.conf] [--timeout 30s]  # 在 master 上对齐 PHC 并发布 GM UTC 偏移
+sudo timesync guard-ptp                                    # 单次执行周期性 PTP 运行守卫
 timesync uninstall [--dry-run] [--yes]                     # 清理 timesync 管理的 NTP/PTP 角色配置
 timesync tui                                             # 交互式引导配置
 timesync rollback                                        # 从上次 apply 备份恢复

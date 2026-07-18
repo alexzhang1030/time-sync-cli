@@ -13,7 +13,9 @@ Linux CLI/TUI for managing NTP and PTP time synchronization on robots, industria
 | Configuration | `timesync apply auto\|master\|client` with `--dry-run`, optional `--ptp`, file backups, `--yes` to confirm overwrites |
 | Interactive setup | `timesync tui` — arrow-key menu for doctor/status/apply with the same status dashboard; falls back to numbered prompts on non-TTY |
 | RTC write-back | `rtcsync` in chrony configs; PTP runtime guard writes trusted system time to RTC |
-| Clock repair | `timesync repair-clock` — recover system time and PHC from RTC after an epoch reset |
+| Clock repair | `timesync repair-clock` — recover system time and PHC from RTC after an epoch reset; on PTP masters it also waits for PHC alignment and publishes valid GM time properties |
+| GM properties | `timesync publish-gm-time-properties` — ensure `phc2sys` has aligned the PHC, then publish and verify `currentUtcOffsetValid` on a PTP grandmaster |
+| Runtime guard | `timesync guard-ptp` — periodic guard that manages `phc2sys`, syncs RTC, and automatically recovers a PTP master when `currentUtcOffsetValid` is lost |
 | Releases | Pre-built `linux/amd64` and `linux/arm64` binaries plus `.deb`/`.rpm` on [GitHub Releases](https://github.com/alexzhang1030/time-sync-cli/releases) |
 
 ## What are NTP and PTP?
@@ -109,7 +111,9 @@ Verify hardware timestamping first:
 timesync doctor   # check PTP capabilities per interface
 ```
 
-The generated grandmaster advertises the current TAI–UTC offset, conservative unknown clock accuracy (`0xFE`), and NTP as its source type. The PTP profile runs Sync and DelayReq at 8 Hz (`logSyncInterval=-3`, `logMinDelayReqInterval=-3`) for faster servo updates. Once `phc2sys` has aligned the PHC to `System + TAI–UTC`, `timesync` publishes `currentUtcOffsetValid=1` through the management socket and verifies the result. The runtime guard republishes the data after a later `ptp4l` restart.
+The generated grandmaster advertises the current TAI–UTC offset, conservative unknown clock accuracy (`0xFE`), and NTP as its source type. The PTP profile runs Sync and DelayReq at 8 Hz (`logSyncInterval=-3`, `logMinDelayReqInterval=-3`) for faster servo updates.
+
+Once `phc2sys` has aligned the PHC to `System + TAI–UTC`, `timesync` publishes `currentUtcOffsetValid=1` through the management socket and verifies the result. This publish step is performed automatically by `repair-clock` on masters, by `publish-gm-time-properties`, and by the periodic `guard-ptp` whenever it detects the valid bit is missing. The runtime guard also restarts `phc2sys` if it is running but the PHC is no longer aligned, so a master can recover from epoch boots or system time jumps without manual intervention.
 
 After upgrading a host that already has the master role, inspect the applied interface and existing NTP values:
 
@@ -241,11 +245,17 @@ PTP client and master roles install this recovery path into `ptp4l.service`:
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
 ```
 
-PTP master roles recover a stale system clock from RTC before serving and publish verified GM time properties after `phc2sys` aligns the PHC:
+PTP master roles recover a stale system clock from RTC before serving, wait for `phc2sys` to align the PHC to TAI, and then publish verified GM time properties so downstream clients see a valid UTC offset:
 
 ```ini
 ExecStartPre=/usr/bin/timesync boot-guard --iface eth0 --repair-system-clock
 ExecStartPost=/usr/bin/timesync publish-gm-time-properties --timeout 30s
+```
+
+`publish-gm-time-properties` can also be run manually after a `ptp4l` or `phc2sys` restart:
+
+```bash
+sudo timesync publish-gm-time-properties --timeout 30s
 ```
 
 Auto PTP monitoring requires a trusted system clock before `ptp4l` starts:
@@ -267,7 +277,9 @@ ExecStart=/usr/bin/timesync guard-ptp
 OnUnitActiveSec=5s
 ```
 
-The guard keeps `phc2sys` stopped while PTP health is red. When PTP is healthy, it starts or keeps `phc2sys` running so a healthy PHC can repair a bad system clock. When system and PHC are close but RTC is stale, the guard writes the trusted system time back into RTC. Guard protection actions exit successfully and log the action, so the periodic timer keeps running during an extended fault.
+The guard keeps `phc2sys` stopped while PTP health is red. When PTP is healthy, it starts or keeps `phc2sys` running so a healthy PHC can repair a bad system clock. When system and PHC are close but RTC is stale, the guard writes the trusted system time back into RTC.
+
+On a PTP master, if `currentUtcOffsetValid` becomes false the guard performs a full recovery: it clears stale systemd failed state, ensures `chrony` is running, starts or restarts `phc2sys`, waits until the PHC residual is within 1 second, and then publishes the GM time properties again. Guard protection actions exit successfully and log the action, so the periodic timer keeps running during an extended fault.
 
 ## How it works (implementation)
 
@@ -394,7 +406,10 @@ timesync status                                          # role-aware health, so
 timesync apply auto [--iface eth0] [--ntp-pool pool.ntp.org] [--ptp] [--dry-run] [--yes]
 timesync apply master --iface eth0 [--ptp] [--ntp-serve-cidr 192.168.0.0/24] [--dry-run] [--yes]
 timesync apply client --iface eth0 --source <host> [--ptp] [--dry-run] [--yes]
-sudo timesync repair-clock [--iface eth0]                 # recover system time and PHC from RTC after epoch reset
+sudo timesync repair-clock [--iface eth0]                 # recover system time and PHC from RTC after epoch reset; on masters also aligns PHC and publishes GM properties
+sudo timesync publish-gm-time-properties [--config /etc/timesync-cli/ptp4l.conf] [--timeout 30s]  # align PHC and publish GM UTC offset on a master
+sudo timesync guard-ptp                                    # single shot of the periodic PTP runtime guard
+sudo timesync boot-guard --iface eth0 --repair-system-clock   # prime system time and PHC before ptp4l starts (used by systemd units)
 timesync uninstall [--dry-run] [--yes]                     # remove timesync-managed NTP/PTP role config
 timesync tui                                             # guided interactive setup
 timesync rollback                                        # restore files from last apply backup
