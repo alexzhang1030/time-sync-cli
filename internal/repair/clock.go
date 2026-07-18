@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alexzhang1030/time-sync-cli/internal/apply"
+	"github.com/alexzhang1030/time-sync-cli/internal/gm"
 )
 
 const (
@@ -35,10 +36,14 @@ func (execRunner) Run(name string, args ...string) ([]byte, error) {
 type Options struct {
 	Iface                     string
 	ConfigDir                 string
+	ConfigPath                string // ptp4l config path for master alignment; empty falls back to gm.DefaultConfigPath
 	RTCPath                   string
 	RepairSystemClock         bool
 	RequireTrustedSystemClock bool
 	Runner                    Runner
+	// PublishGM publishes grandmaster time properties on a master. When nil,
+	// gm.Publish is used. Exposed for tests.
+	PublishGM func(iface string) error
 }
 
 // Result describes the repair steps that ran.
@@ -83,15 +88,48 @@ func Clock(opts Options) (*Result, error) {
 	if err := runStep(runner, result, "date", "-u", "-s", "@"+strconv.FormatInt(rtcEpoch, 10)); err != nil {
 		return nil, err
 	}
+
+	// Seed PHC from the (now trusted) system time. On a master, phc2sys
+	// is the component responsible for then disciplining the PHC from
+	// CLOCK_REALTIME into TAI (system + utc_offset). We use a plain set
+	// here so that phc2sys performs the offset application.
 	if err := runStep(runner, result, "phc_ctl", iface, "set"); err != nil {
 		return nil, err
 	}
+
 	if err := runStep(runner, result, "systemctl", "start", "ptp4l"); err != nil {
 		return nil, err
 	}
 	if err := runStep(runner, result, "systemctl", "start", "phc2sys"); err != nil {
 		return nil, err
 	}
+
+	// For masters, wait for phc2sys to apply the TAI offset so that
+	// the system leaves repair-clock with publishable GM properties.
+	// This makes the documented recovery path complete.
+	if state, err := apply.LoadState(opts.ConfigDir); err == nil && state.PTP {
+		role := strings.ToLower(strings.TrimSpace(string(state.Role)))
+		if role == "master" {
+			if waitErr := gm.WaitForPHCAlignment(runner, opts.ConfigPath, iface, 25*time.Second); waitErr != nil {
+				// Return error (with partial result) on alignment failure; do not
+				// silently discard.
+				return result, fmt.Errorf("wait for PHC alignment on master: %w", waitErr)
+			}
+			// Attempt to publish; if it fails, return the error so the caller knows
+			// the GM properties may not be valid yet.
+			publishGM := opts.PublishGM
+			if publishGM == nil {
+				publishGM = func(iface string) error {
+					_, err := gm.Publish(gm.Options{Runner: runner, Iface: iface, ConfigPath: opts.ConfigPath, Timeout: 10 * time.Second})
+					return err
+				}
+			}
+			if pubErr := publishGM(iface); pubErr != nil {
+				return result, fmt.Errorf("publish GM time properties after repair: %w", pubErr)
+			}
+		}
+	}
+
 	return result, nil
 }
 

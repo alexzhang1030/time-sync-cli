@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -399,6 +400,24 @@ func publishGMTimePropertiesCmd() *cobra.Command {
 			if state.Role != model.RoleMaster || !state.PTP {
 				return fmt.Errorf("grandmaster time properties require an applied master --ptp role")
 			}
+
+			// Make the publish command robust on its own: ensure phc2sys (the
+			// master PHC writer) is running and has aligned the PHC to TAI
+			// before we attempt to set currentUtcOffsetValid. This directly
+			// prevents the "residual -37s" failure after clock recovery that
+			// leads to clients seeing Clock UNKNOWN.
+			if err := exec.Command("systemctl", "start", "phc2sys").Run(); err != nil {
+				return fmt.Errorf("failed to start phc2sys for GM alignment: %w", err)
+			}
+			// Wait for phc2sys to bring PHC into the required state.
+			// Respect the --config flag for the utc_offset and the --timeout
+			// flag for the maximum wait. Fail early if we cannot achieve
+			// alignment so the caller gets a clear error instead of a
+			// confusing residual message from Publish.
+			if waitErr := gm.WaitForPHCAlignment(nil, configPath, state.Iface, timeout); waitErr != nil {
+				return fmt.Errorf("PHC alignment failed (using config %s): %w", configPath, waitErr)
+			}
+
 			result, err := gm.Publish(gm.Options{
 				ConfigPath: configPath,
 				Iface:      state.Iface,
@@ -413,7 +432,7 @@ func publishGMTimePropertiesCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", gm.DefaultConfigPath, "generated ptp4l configuration")
-	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time to wait for the ptp4l management socket")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time to wait for PHC alignment and the ptp4l management socket")
 	cmd.Flags().DurationVar(&interval, "interval", time.Second, "retry interval")
 	return cmd
 }

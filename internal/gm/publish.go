@@ -115,23 +115,32 @@ func publishOnce(runner Runner, iface string, offset int) error {
 }
 
 func verifyPHCTimescale(runner Runner, iface string, offset int) error {
-	before := time.Now()
-	out, err := runner.Run("phc_ctl", iface, "get")
-	after := time.Now()
+	residual, err := samplePHCResidual(runner, iface, offset)
 	if err != nil {
-		return fmt.Errorf("phc_ctl %s get: %w: %s", iface, err, strings.TrimSpace(string(out)))
+		return err
 	}
-	phcNS, err := status.ParsePHCTimeNS(string(out))
-	if err != nil {
-		return fmt.Errorf("parse PHC time: %w", err)
-	}
-	systemMidpointNS := before.UnixNano() + after.Sub(before).Nanoseconds()/2
-	expectedPHCNS := systemMidpointNS + int64(offset)*int64(time.Second)
-	residual := phcNS - expectedPHCNS
 	if absInt64(residual) > int64(maxPHCTAIResidual) {
 		return fmt.Errorf("PHC TAI residual %s exceeds %s while phc2sys converges", time.Duration(residual), maxPHCTAIResidual)
 	}
 	return nil
+}
+
+// samplePHCResidual returns (PHC time - (system time + offset)) in nanoseconds.
+// Positive means PHC is ahead of expected TAI.
+func samplePHCResidual(runner Runner, iface string, offset int) (int64, error) {
+	before := time.Now()
+	out, err := runner.Run("phc_ctl", iface, "get")
+	after := time.Now()
+	if err != nil {
+		return 0, fmt.Errorf("phc_ctl %s get: %w: %s", iface, err, strings.TrimSpace(string(out)))
+	}
+	phcNS, err := status.ParsePHCTimeNS(string(out))
+	if err != nil {
+		return 0, fmt.Errorf("parse PHC time: %w", err)
+	}
+	systemMidpointNS := before.UnixNano() + after.Sub(before).Nanoseconds()/2
+	expectedPHCNS := systemMidpointNS + int64(offset)*int64(time.Second)
+	return phcNS - expectedPHCNS, nil
 }
 
 func buildSetCommand(fields map[string]string, offset int) (string, error) {
@@ -209,4 +218,67 @@ func absInt64(value int64) int64 {
 		return -value
 	}
 	return value
+}
+
+// ReadUTCOffset reads the utc_offset from the ptp4l configuration file.
+// It is intended for use by repair-clock and other components that need
+// to seed the PHC in the correct timescale for a PTP master.
+func ReadUTCOffset(path string) (int, error) {
+	if path == "" {
+		path = DefaultConfigPath
+	}
+	return utcOffsetFromConfig(path)
+}
+
+// WaitForPHCAlignment polls until the PHC on iface is within the 1s tolerance
+// of (current system time + utc_offset from config). This is the proper
+// precondition for a master to publish valid TAI time properties.
+//
+// The caller is responsible for ensuring phc2sys is running (the component
+// that actually disciplines PHC from CLOCK_REALTIME on a master). This
+// function only observes and waits.
+//
+// If configPath is empty, DefaultConfigPath is used.
+func WaitForPHCAlignment(runner Runner, configPath string, iface string, timeout time.Duration) error {
+	if runner == nil {
+		runner = execRunner{}
+	}
+	offset, err := ReadUTCOffset(configPath)
+	if err != nil {
+		return fmt.Errorf("read utc_offset for alignment wait: %w", err)
+	}
+	deadline := time.Now().Add(timeout)
+	interval := time.Second
+	consecutiveErrors := 0
+	var lastErr error
+	for {
+		residual, sampleErr := samplePHCResidual(runner, iface, offset)
+		if sampleErr == nil && absInt64(residual) <= int64(maxPHCTAIResidual) {
+			return nil
+		}
+		if sampleErr != nil {
+			lastErr = sampleErr
+		} else {
+			lastErr = fmt.Errorf("residual %s exceeds 1s", time.Duration(residual))
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("timed out waiting for PHC alignment: %w", lastErr)
+		}
+		if sampleErr != nil {
+			consecutiveErrors++
+			if consecutiveErrors >= 5 {
+				// Early exit on persistent phc_ctl / sampling errors instead of
+				// polling the full timeout.
+				return fmt.Errorf("persistent failure sampling PHC for alignment: %w", sampleErr)
+			}
+		} else {
+			consecutiveErrors = 0
+		}
+		sleep := interval
+		if consecutiveErrors > 2 {
+			// modest backoff on errors
+			sleep = 3 * time.Second
+		}
+		time.Sleep(sleep)
+	}
 }

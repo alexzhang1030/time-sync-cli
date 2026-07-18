@@ -242,8 +242,27 @@ func (s statusRenderer) renderClocks(r *Report) string {
 	if r.Clock.PHCTimeScale != "" {
 		rows = append(rows, s.row("PHC time scale", r.Clock.PHCTimeScale))
 	}
+	// Single coherent decision for TAI–UTC offset validity to avoid any
+	// possibility of duplicate or conflicting "TAI–UTC offset valid" rows.
+	offsetValid := ""
+	offsetDesc := ""
 	if r.Clock.TAIUTCOffsetValid {
-		rows = append(rows, s.row("TAI–UTC offset", fmt.Sprintf("%+d s · from ptp4l", r.Clock.TAIUTCOffset)))
+		offsetValid = "yes"
+		offsetDesc = fmt.Sprintf("%+d s · from ptp4l", r.Clock.TAIUTCOffset)
+	} else if r.Clock.PHCTimeScale == "TAI" || r.Clock.PHCTimeScale == "UTC" {
+		if strings.EqualFold(r.ConfiguredRole, "master") {
+			offsetValid = "no"
+		} else {
+			offsetValid = "no (from GM)"
+		}
+	} else if r.Clock.PHCTimeScale != "" && r.Clock.PHCTimeScale != "unknown" {
+		offsetValid = "no"
+	}
+	if offsetValid != "" {
+		rows = append(rows, s.row("TAI–UTC offset valid", offsetValid))
+		if offsetDesc != "" {
+			rows = append(rows, s.row("TAI–UTC offset", offsetDesc))
+		}
 	}
 	if r.Clock.PHCResidual != "" {
 		rows = append(rows, s.row("PHC residual", r.Clock.PHCResidual+" · System − PHC(UTC)"))

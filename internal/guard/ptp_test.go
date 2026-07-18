@@ -2,6 +2,9 @@ package guard
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,6 +19,12 @@ type fakeRunner struct {
 
 func (f *fakeRunner) Run(name string, args ...string) ([]byte, error) {
 	f.commands = append(f.commands, strings.Join(append([]string{name}, args...), " "))
+	if name == "phc_ctl" && len(args) >= 2 && args[len(args)-1] == "get" {
+		// Return a PHC time that is aligned (system + 37s) so WaitForPHCAlignment succeeds quickly.
+		t := time.Now().Add(37 * time.Second)
+		s := fmt.Sprintf("phc_ctl[1.000]: clock time is %d.%09d or test", t.Unix(), t.Nanosecond())
+		return []byte(s), nil
+	}
 	return nil, nil
 }
 
@@ -42,8 +51,20 @@ func configuredPTPMasterReport(r *status.Report) *status.Report {
 
 func TestPTPOnceRepublishesInvalidGrandmasterTimeProperties(t *testing.T) {
 	publishedIface := ""
+	runner := &fakeRunner{}
+
+	// Provide an explicit configPath with utc_offset so WaitForPHCAlignment's
+	// ReadUTCOffset succeeds in unit test (avoids /etc read). The guard fake
+	// will make the phc_ctl sample inside wait return aligned data.
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "ptp4l.conf")
+	if err := os.WriteFile(cfgPath, []byte("utc_offset 37\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	result, err := PTPOnce(Options{
-		Runner: &fakeRunner{},
+		Runner:     runner,
+		ConfigPath: cfgPath,
 		Collect: func() (*status.Report, error) {
 			return configuredPTPMasterReport(&status.Report{
 				PTPHealth: "true",
@@ -68,8 +89,52 @@ func TestPTPOnceRepublishesInvalidGrandmasterTimeProperties(t *testing.T) {
 	if publishedIface != "eth0" {
 		t.Fatalf("published iface = %q, want eth0", publishedIface)
 	}
-	if result.Action != "publish gm time properties" {
-		t.Fatalf("Action = %q, want publish gm time properties", result.Action)
+	// With robust master recovery, when !valid even if phc2sys was "active",
+	// we restart it to force re-alignment from current system time.
+	if result.Action != "restart phc2sys + publish gm time properties" {
+		t.Fatalf("Action = %q, want restart phc2sys + publish gm time properties", result.Action)
+	}
+}
+
+func TestPTPOnceStartsPHC2SysForMaster(t *testing.T) {
+	publishedIface := ""
+	runner := &fakeRunner{}
+
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "ptp4l.conf")
+	if err := os.WriteFile(cfgPath, []byte("utc_offset 37\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := PTPOnce(Options{
+		Runner:     runner,
+		ConfigPath: cfgPath,
+		Collect: func() (*status.Report, error) {
+			return configuredPTPMasterReport(&status.Report{
+				PTPHealth: "true",
+				PTP: status.PTPStatus{
+					PTP4LActive:             true,
+					PHC2SysActive:           false,
+					PortState:               "MASTER",
+					TimePropertiesAvailable: true,
+					CurrentUTCOffsetValid:   false,
+				},
+				Clock: status.ClockStatus{Iface: "eth0"},
+			}), nil
+		},
+		PublishGM: func(iface string) error {
+			publishedIface = iface
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publishedIface != "eth0" {
+		t.Fatalf("published iface = %q, want eth0", publishedIface)
+	}
+	if result.Action != "start phc2sys + publish gm time properties" {
+		t.Fatalf("Action = %q, want start phc2sys + publish gm time properties", result.Action)
 	}
 }
 

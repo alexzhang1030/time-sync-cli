@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -96,8 +97,11 @@ func TestPublishRejectsUnverifiedSettings(t *testing.T) {
 }
 
 func TestPublishWaitsForPHCToUsePTPTimescale(t *testing.T) {
+	// Use a PHC time far from both current system and system+offset.
+	// This should NOT trigger the TAI bootstrap alignment and should fail
+	// the residual check (preserving the "do not publish until PHC is sane" behavior).
 	runner := &fakeRunner{responses: []runnerResponse{
-		{out: []byte(phcTime(0))},
+		{out: []byte(phcTime(-99999 * time.Second))},
 	}}
 
 	_, err := Publish(Options{
@@ -110,6 +114,33 @@ func TestPublishWaitsForPHCToUsePTPTimescale(t *testing.T) {
 	}
 	if len(runner.commands) != 1 || runner.commands[0] != "phc_ctl eth0 get" {
 		t.Fatalf("commands = %#v, want PHC check only", runner.commands)
+	}
+}
+
+func TestPublishRequiresPHCAlignedByPHC2Sys(t *testing.T) {
+	// With the clean architecture, publish itself does not mutate the PHC.
+	// It expects phc2sys (the designated master clock writer) to have aligned
+	// the PHC to system + offset. If the PHC is still at "system time",
+	// publish correctly fails the strict verify so that callers (guard/repair)
+	// know they must ensure phc2sys has run.
+	configPath := writeConfig(t, "utc_offset 37\n")
+	runner := &fakeRunner{responses: []runnerResponse{
+		{out: []byte(phcTime(0))}, // PHC ≈ current system, missing offset
+	}}
+
+	_, err := Publish(Options{
+		Runner:     runner,
+		ConfigPath: configPath,
+		Iface:      "eth0",
+	})
+	if err == nil || !strings.Contains(err.Error(), "PHC TAI residual") {
+		t.Fatalf("error = %v, want residual failure (phc2sys must align)", err)
+	}
+	// Assert Publish failed before ever running pmc commands (only the
+	// pre-publish PHC check is allowed).
+	wantCmds := []string{"phc_ctl eth0 get"}
+	if !reflect.DeepEqual(runner.commands, wantCmds) {
+		t.Fatalf("commands = %#v, want only %v (no pmc before alignment)", runner.commands, wantCmds)
 	}
 }
 
