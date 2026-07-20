@@ -98,9 +98,9 @@ func PTPOnce(opts Options) (*Result, error) {
 		// For masters: phc2sys is THE component that disciplines PHC from
 		// CLOCK_REALTIME to TAI. The guard's job is to make sure phc2sys
 		// is running and has aligned, then publish the valid bit.
-		// This provides the "开机就自动" recovery: even after epoch, bad
-		// boots, or system time jumps, the periodic guard will fix it
-		// without user intervention.
+		// This provides automatic recovery: even after epoch, bad boots,
+		// or system time jumps, the periodic guard will fix it without
+		// user intervention.
 		var startedPHC2Sys, restartedPHC2Sys bool
 		// Clean up any stale failed state from a 1970-era boot.
 		if err := run(runner, "systemctl", "reset-failed", "phc2sys", "ptp4l"); err != nil {
@@ -112,26 +112,43 @@ func PTPOnce(opts Options) (*Result, error) {
 			return result, fmt.Errorf("start chrony for trusted system time: %w", err)
 		}
 
-		if !report.PTP.PHC2SysActive {
+		phc2sysState := strings.ToLower(strings.TrimSpace(report.Systemd.PHC2SysUnit.ActiveState))
+		switch {
+		case phc2sysState == "activating", phc2sysState == "reloading":
+			// Unit is mid-start (often inside ExecStartPost publish). A blocking
+			// systemctl start/restart would deadlock the start job — only wait.
+		case report.PTP.PHC2SysActive:
+			// Already active. Prefer publish-only first; restart only if the PHC
+			// is not on TAI after the wait below (handled by alignment error path).
+		case phc2sysState == "failed", phc2sysState == "inactive", phc2sysState == "deactivating", phc2sysState == "":
 			if err := run(runner, "systemctl", "start", "phc2sys"); err != nil {
 				return result, err
 			}
 			startedPHC2Sys = true
-		} else if !report.PTP.CurrentUTCOffsetValid {
-			// phc2sys is running but valid bit is not set. This often
-			// means it aligned to an old system time. Force a restart
-			// so it re-evaluates current system and steps the PHC
-			// (thanks to -S 1.0).
-			if err := run(runner, "systemctl", "restart", "phc2sys"); err != nil {
+		default:
+			// Unknown state: try a non-destructive start.
+			if err := run(runner, "systemctl", "start", "phc2sys"); err != nil {
 				return result, err
 			}
-			restartedPHC2Sys = true
+			startedPHC2Sys = true
 		}
 
 		// Wait (up to ~20s) for phc2sys to make PHC match system + offset.
-		// This is the key "兜底" that makes boot automatic.
+		// This is the key fallback that makes boot recovery automatic.
 		if err := gm.WaitForPHCAlignment(runner, opts.ConfigPath, iface, 20*time.Second); err != nil {
-			return result, fmt.Errorf("wait for PHC alignment: %w", err)
+			// If phc2sys is already active but stuck off TAI, bounce it once so
+			// -S 1.0 can step the PHC, then wait again.
+			if report.PTP.PHC2SysActive && !restartedPHC2Sys {
+				if restartErr := run(runner, "systemctl", "restart", "phc2sys"); restartErr != nil {
+					return result, fmt.Errorf("wait for PHC alignment: %w (restart failed: %v)", err, restartErr)
+				}
+				restartedPHC2Sys = true
+				if err := gm.WaitForPHCAlignment(runner, opts.ConfigPath, iface, 20*time.Second); err != nil {
+					return result, fmt.Errorf("wait for PHC alignment after restart: %w", err)
+				}
+			} else {
+				return result, fmt.Errorf("wait for PHC alignment: %w", err)
+			}
 		}
 
 		publishGM := opts.PublishGM

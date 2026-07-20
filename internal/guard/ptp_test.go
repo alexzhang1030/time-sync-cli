@@ -89,10 +89,14 @@ func TestPTPOnceRepublishesInvalidGrandmasterTimeProperties(t *testing.T) {
 	if publishedIface != "eth0" {
 		t.Fatalf("published iface = %q, want eth0", publishedIface)
 	}
-	// With robust master recovery, when !valid even if phc2sys was "active",
-	// we restart it to force re-alignment from current system time.
-	if result.Action != "restart phc2sys + publish gm time properties" {
-		t.Fatalf("Action = %q, want restart phc2sys + publish gm time properties", result.Action)
+	// Active phc2sys with PHC already on TAI: publish only (no restart churn).
+	if result.Action != "publish gm time properties" {
+		t.Fatalf("Action = %q, want publish gm time properties", result.Action)
+	}
+	for _, cmd := range runner.commands {
+		if strings.Contains(cmd, "systemctl restart phc2sys") {
+			t.Fatalf("commands = %#v, did not expect restart when PHC is already aligned", runner.commands)
+		}
 	}
 }
 

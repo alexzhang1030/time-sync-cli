@@ -401,13 +401,16 @@ func publishGMTimePropertiesCmd() *cobra.Command {
 				return fmt.Errorf("grandmaster time properties require an applied master --ptp role")
 			}
 
-			// Make the publish command robust on its own: ensure phc2sys (the
-			// master PHC writer) is running and has aligned the PHC to TAI
-			// before we attempt to set currentUtcOffsetValid. This directly
-			// prevents the "residual -37s" failure after clock recovery that
-			// leads to clients seeing Clock UNKNOWN.
-			if err := exec.Command("systemctl", "start", "phc2sys").Run(); err != nil {
-				return fmt.Errorf("failed to start phc2sys for GM alignment: %w", err)
+			// Ensure phc2sys (the master PHC writer) is running so the PHC can
+			// converge to TAI before we set currentUtcOffsetValid.
+			//
+			// Critical: this command is also invoked from phc2sys ExecStartPost.
+			// Calling a blocking `systemctl start phc2sys` while the unit is
+			// already "activating" deadlocks against the start job and times out.
+			// Only start when the unit is fully stopped; if it is already active
+			// or mid-start, just wait for PHC alignment.
+			if err := ensurePHC2SysRunningForPublish(); err != nil {
+				return err
 			}
 			// Wait for phc2sys to bring PHC into the required state.
 			// Respect the --config flag for the utc_offset and the --timeout
@@ -435,6 +438,31 @@ func publishGMTimePropertiesCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time to wait for PHC alignment and the ptp4l management socket")
 	cmd.Flags().DurationVar(&interval, "interval", time.Second, "retry interval")
 	return cmd
+}
+
+// ensurePHC2SysRunningForPublish starts phc2sys only when it is fully stopped.
+// When the unit is already active or activating (including ExecStartPost of
+// phc2sys itself), a blocking systemctl start would deadlock the start job.
+func ensurePHC2SysRunningForPublish() error {
+	out, err := exec.Command("systemctl", "is-active", "phc2sys").CombinedOutput()
+	state := strings.TrimSpace(string(out))
+	switch state {
+	case "active", "activating", "reloading":
+		return nil
+	}
+	// is-active returns exit status 3 for inactive/failed; still try to start.
+	if err := exec.Command("systemctl", "start", "phc2sys").Run(); err != nil {
+		return fmt.Errorf("failed to start phc2sys for GM alignment (was %q): %w", valueOr(state, "unknown"), err)
+	}
+	_ = err // is-active non-zero is expected when inactive
+	return nil
+}
+
+func valueOr(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func ptpReadyForPHC2Sys(report *status.Report) bool {

@@ -232,8 +232,8 @@ func TestPlanMaster_PTPPhc2sysSyncsPHCFromSystemClock(t *testing.T) {
 	}
 
 	required := map[string]string{
-		"/etc/timesync-cli/phc2sys.conf":      "-s CLOCK_REALTIME -c eth2 -w -S 1.0",
-		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c eth2 -w -S 1.0",
+		"/etc/timesync-cli/phc2sys.conf":      "-s CLOCK_REALTIME -c eth2 -O 37 -w -S 1.0",
+		"/etc/systemd/system/phc2sys.service": "ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c eth2 -O 37 -w -S 1.0",
 	}
 	for path, want := range required {
 		found := false
@@ -243,8 +243,13 @@ func TestPlanMaster_PTPPhc2sysSyncsPHCFromSystemClock(t *testing.T) {
 				if !strings.Contains(c.Content, want) {
 					t.Errorf("%s = %q, want %q", path, c.Content, want)
 				}
-				if path == "/etc/systemd/system/phc2sys.service" && !strings.Contains(c.Content, "ExecStartPost=/usr/bin/timesync publish-gm-time-properties --timeout 30s") {
-					t.Errorf("%s missing verified GM time properties publication", path)
+				if path == "/etc/systemd/system/phc2sys.service" {
+					if !strings.Contains(c.Content, "ExecStartPost=/usr/bin/timesync publish-gm-time-properties --timeout 60s") {
+						t.Errorf("%s missing verified GM time properties publication", path)
+					}
+					if !strings.Contains(c.Content, "TimeoutStartSec=120") {
+						t.Errorf("%s missing TimeoutStartSec for PHC alignment + publish", path)
+					}
 				}
 				if strings.Contains(c.Content, "-f /etc/timesync-cli/ptp4l.conf -s eth2 -w") {
 					t.Errorf("%s uses client phc2sys direction", path)
